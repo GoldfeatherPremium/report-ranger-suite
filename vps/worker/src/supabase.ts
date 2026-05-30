@@ -9,7 +9,7 @@ if (!url || !key) {
 
 export const supabase = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
-  realtime: { transport: WebSocket },
+  realtime: { transport: WebSocket as any },
 });
 
 export type Job = {
