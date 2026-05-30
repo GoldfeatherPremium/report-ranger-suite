@@ -73,7 +73,7 @@ export async function submitToTurnitin(opts: {
     } else {
       const chooser = await fileChooserPromise;
       if (!chooser) throw new Error("No file chooser appeared");
-      await chooser.setInputFiles(filePath);
+      await chooser.setFiles(filePath);
     }
     await clickWhenVisible(page, SEL.confirmSubmit, 60_000).catch(() => {});
 
