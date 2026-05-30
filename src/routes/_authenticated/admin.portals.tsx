@@ -59,7 +59,7 @@ function PortalsPage() {
     catch { return toast.error("Selectors must be valid JSON"); }
     setBusy(true);
     const payload = {
-      name: form.name, base_url: form.base_url, selectors,
+      name: form.name, base_url: form.base_url, selectors: selectors as Json,
       timeout_ms: Number(form.timeout_ms), is_active: form.is_active,
     };
     const { error } = editing
