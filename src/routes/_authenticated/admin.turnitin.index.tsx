@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Plus, ChevronRight, Power } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/admin/turnitin")({ component: Page });
+export const Route = createFileRoute("/_authenticated/admin/turnitin/")({ component: Page });
 
 type Account = {
   id: string; label: string; email: string; login_url: string;

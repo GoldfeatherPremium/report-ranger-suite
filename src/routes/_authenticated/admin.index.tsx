@@ -6,7 +6,7 @@ import type { JobStatus } from "@/lib/jobs";
 import { statusStyles } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_authenticated/admin")({ component: AdminOverview });
+export const Route = createFileRoute("/_authenticated/admin/")({ component: AdminOverview });
 
 const ALL_STATUSES: JobStatus[] = ["pending", "queued", "processing", "completed", "failed", "cancelled"];
 
