@@ -60,17 +60,21 @@ export type Database = {
           error: string | null
           finished_at: string | null
           id: string
+          last_polled_at: string | null
           max_attempts: number
           mime_type: string | null
           original_name: string
           portal_id: string | null
           queued_at: string | null
           size_bytes: number | null
+          slot_id: string | null
           source_path: string
           started_at: string | null
           status: Database["public"]["Enums"]["job_state"]
+          turnitin_submission_id: string | null
           updated_at: string
           user_id: string
+          worker_id: string | null
         }
         Insert: {
           attempts?: number
@@ -79,17 +83,21 @@ export type Database = {
           error?: string | null
           finished_at?: string | null
           id?: string
+          last_polled_at?: string | null
           max_attempts?: number
           mime_type?: string | null
           original_name: string
           portal_id?: string | null
           queued_at?: string | null
           size_bytes?: number | null
+          slot_id?: string | null
           source_path: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["job_state"]
+          turnitin_submission_id?: string | null
           updated_at?: string
           user_id: string
+          worker_id?: string | null
         }
         Update: {
           attempts?: number
@@ -98,17 +106,21 @@ export type Database = {
           error?: string | null
           finished_at?: string | null
           id?: string
+          last_polled_at?: string | null
           max_attempts?: number
           mime_type?: string | null
           original_name?: string
           portal_id?: string | null
           queued_at?: string | null
           size_bytes?: number | null
+          slot_id?: string | null
           source_path?: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["job_state"]
+          turnitin_submission_id?: string | null
           updated_at?: string
           user_id?: string
+          worker_id?: string | null
         }
         Relationships: [
           {
@@ -116,6 +128,13 @@ export type Database = {
             columns: ["portal_id"]
             isOneToOne: false
             referencedRelation: "portal_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jobs_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_slots"
             referencedColumns: ["id"]
           },
           {
@@ -200,6 +219,118 @@ export type Database = {
             columns: ["job_id"]
             isOneToOne: false
             referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      turnitin_accounts: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_active: boolean
+          label: string
+          login_url: string
+          notes: string | null
+          password_encrypted: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          is_active?: boolean
+          label: string
+          login_url?: string
+          notes?: string | null
+          password_encrypted: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          login_url?: string
+          notes?: string | null
+          password_encrypted?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      turnitin_slot_usage: {
+        Row: {
+          freed_at: string | null
+          id: string
+          job_id: string
+          slot_id: string
+          submitted_at: string
+          turnitin_submission_id: string | null
+        }
+        Insert: {
+          freed_at?: string | null
+          id?: string
+          job_id: string
+          slot_id: string
+          submitted_at?: string
+          turnitin_submission_id?: string | null
+        }
+        Update: {
+          freed_at?: string | null
+          id?: string
+          job_id?: string
+          slot_id?: string
+          submitted_at?: string
+          turnitin_submission_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnitin_slot_usage_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      turnitin_slots: {
+        Row: {
+          account_id: string
+          cooldown_hours: number
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          submit_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          cooldown_hours?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          submit_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          cooldown_hours?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          submit_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnitin_slots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_accounts"
             referencedColumns: ["id"]
           },
         ]
@@ -295,7 +426,56 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _turnitin_key: { Args: never; Returns: string }
+      add_turnitin_account: {
+        Args: {
+          p_email: string
+          p_label: string
+          p_login_url: string
+          p_notes: string
+          p_password: string
+        }
+        Returns: string
+      }
+      claim_next_job: {
+        Args: { p_worker_id: string }
+        Returns: {
+          attempts: number
+          bull_job_id: string | null
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          last_polled_at: string | null
+          max_attempts: number
+          mime_type: string | null
+          original_name: string
+          portal_id: string | null
+          queued_at: string | null
+          size_bytes: number | null
+          slot_id: string | null
+          source_path: string
+          started_at: string | null
+          status: Database["public"]["Enums"]["job_state"]
+          turnitin_submission_id: string | null
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      decrypt_account_password: { Args: { account: string }; Returns: string }
+      encrypt_account_password: { Args: { plain: string }; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      requeue_stuck_jobs: {
+        Args: { p_max_age_minutes?: number }
+        Returns: number
+      }
     }
     Enums: {
       job_state:

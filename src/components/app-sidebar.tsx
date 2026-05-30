@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, History, Users, Briefcase, Settings, LogOut, ShieldCheck, FileStack } from "lucide-react";
+import { LayoutDashboard, History, Users, Briefcase, Settings, LogOut, ShieldCheck, FileStack, KeyRound } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
@@ -16,6 +16,7 @@ const adminItems = [
   { title: "Overview", url: "/admin", icon: ShieldCheck },
   { title: "Users", url: "/admin/users", icon: Users },
   { title: "All Jobs", url: "/admin/jobs", icon: Briefcase },
+  { title: "Turnitin", url: "/admin/turnitin", icon: KeyRound },
   { title: "Portal Configs", url: "/admin/portals", icon: Settings },
 ];
 
