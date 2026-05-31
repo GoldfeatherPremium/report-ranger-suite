@@ -9,7 +9,7 @@ const SEL = {
   emailInput: 'input[name="email"], input#email, input[type="email"], input[name="user_email"], input[autocomplete="username"]',
   passwordInput: 'input[name="password"], input[name="user_password"], input#password, input#user_password, input[type="password"]',
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
-  submitFileButton: 'a:has-text("Submit"), button:has-text("Submit")',
+  submitFileButton: 'a:has-text("Submit"), button:has-text("Submit"), input[value="Submit" i], [title*="Submit" i], [aria-label*="Submit" i]',
   fileInput: 'input[type="file"]',
   confirmSubmit: 'button:has-text("Confirm"), input[value="Confirm"]',
   similarityCell: '[data-similarity], .similarity-score, .or-link',
@@ -92,11 +92,23 @@ export async function submitToTurnitin(opts: {
     // Navigate to the slot's submit URL if provided, otherwise rely on the
     // default class list view.
     if (slot.submit_url) {
+      await onProgress(`navigating to submit_url: ${slot.submit_url}`);
       await page.goto(slot.submit_url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.waitForLoadState("load", { timeout: 60_000 }).catch(() => {});
+    } else {
+      await onProgress("no submit_url set on this slot — staying on the post-login home page");
     }
+    await onProgress(`submit page: url=${page.url()} title=${await page.title().catch(() => "?")}`);
 
     await onProgress("opening submit form");
-    await clickWhenVisible(page, SEL.submitFileButton, 30_000);
+    try {
+      await clickInAnyFrame(page, SEL.submitFileButton, 30_000);
+    } catch {
+      await dumpPageControls(page, onProgress);
+      throw new Error(
+        "Could not find a 'Submit' control after login. The [diag] lines above list every link/button on this page — share them and I'll map the class -> assignment -> submit navigation. (If the slot has no submit_url, set it to the assignment's submission page.)",
+      );
+    }
 
     await onProgress("uploading file");
     const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 30_000 }).catch(() => null);
