@@ -6,8 +6,36 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Copy, Eye, EyeOff, Loader2, ShieldAlert } from "lucide-react";
+import { Copy, Eye, EyeOff, Loader2, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
 import { getWorkerCredentials } from "@/lib/admin-settings.functions";
+
+type KeyValidation =
+  | { ok: true; role: "service_role"; ref: string | null; exp: number | null }
+  | { ok: false; reason: string; role?: string };
+
+function validateServiceRoleKey(key: string): KeyValidation {
+  if (!key || typeof key !== "string") return { ok: false, reason: "Key is empty" };
+  const trimmed = key.trim();
+  if (trimmed !== key) return { ok: false, reason: "Key has surrounding whitespace" };
+  const parts = key.split(".");
+  if (parts.length !== 3) {
+    return { ok: false, reason: "Not a JWT — looks like a publishable/anon key or placeholder" };
+  }
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { role?: string; ref?: string; exp?: number };
+    if (payload.role !== "service_role") {
+      return { ok: false, reason: `JWT role is "${payload.role ?? "unknown"}", expected "service_role"`, role: payload.role };
+    }
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      return { ok: false, reason: "JWT is expired", role: payload.role };
+    }
+    return { ok: true, role: "service_role", ref: payload.ref ?? null, exp: payload.exp ?? null };
+  } catch {
+    return { ok: false, reason: "JWT payload could not be decoded" };
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/admin/settings")({ component: Page });
 
@@ -21,6 +49,16 @@ function Page() {
   });
 
   const [reveal, setReveal] = useState(false);
+  const validation = data ? validateServiceRoleKey(data.serviceRoleKey) : null;
+  const keyOk = validation?.ok === true;
+
+  async function copyGuarded(value: string, label: string) {
+    if (!keyOk) {
+      toast.error("Refusing to copy — service role key failed validation");
+      return;
+    }
+    return copy(value, label);
+  }
 
   async function copy(value: string, label: string) {
     try {
@@ -90,20 +128,40 @@ HEARTBEAT_MS=30000`
                 type={reveal ? "text" : "password"}
                 value={data.serviceRoleKey}
                 className="font-mono text-xs"
+                aria-invalid={!keyOk}
               />
               <Button variant="outline" size="icon" onClick={() => setReveal((r) => !r)}>
                 {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
-              <Button variant="outline" size="icon" onClick={() => copy(data.serviceRoleKey, "Service role key")}>
+              <Button variant="outline" size="icon" disabled={!keyOk} onClick={() => copyGuarded(data.serviceRoleKey, "Service role key")}>
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
+            {validation && (
+              keyOk ? (
+                <div className="flex items-center gap-2 text-xs text-success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>
+                    Valid service_role JWT
+                    {validation.ref ? ` · project ${validation.ref}` : ""}
+                    {validation.exp ? ` · expires ${new Date(validation.exp * 1000).toLocaleDateString()}` : ""}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 text-xs text-destructive">
+                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    Invalid key: {validation.reason}. Copying and the .env block are disabled until this is fixed on the server.
+                  </span>
+                </div>
+              )
+            )}
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Full .env for VPS worker</Label>
-              <Button variant="outline" size="sm" onClick={() => copy(envBlock, ".env contents")}>
+              <Button variant="outline" size="sm" disabled={!keyOk} onClick={() => copyGuarded(envBlock, ".env contents")}>
                 <Copy className="mr-2 h-4 w-4" /> Copy all
               </Button>
             </div>
