@@ -57,27 +57,25 @@ async function locateInAnyFrame(page: Page, sel: string): Promise<Frame | null> 
   return null;
 }
 
-async function forceClick(page: Page, sel: string): Promise<boolean> {
-  for (const f of page.frames()) {
-    const n = await f.locator(sel).count().catch(() => 0);
-    if (n > 0) {
-      const loc = f.locator(sel).first();
-      const ok = await loc.click({ timeout: 3_000, force: true }).then(() => true).catch(() => false);
-      if (!ok) {
-        await loc.evaluate((el) =>
-          el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window })),
-        ).catch(() => {});
-      }
-      return true;
-    }
-  }
-  return false;
+// Use real mouse coordinates so Turnitin's event.isTrusted check passes.
+async function mouseClick(page: Page, sel: string): Promise<boolean> {
+  const frame = page.mainFrame();
+  const n = await frame.locator(sel).count().catch(() => 0);
+  if (n === 0) return false;
+  const box = await frame.locator(sel).first().boundingBox().catch(() => null);
+  if (!box) return false;
+  const cx = Math.round(box.x + box.width / 2);
+  const cy = Math.round(box.y + box.height / 2);
+  await page.mouse.move(cx, cy);
+  await page.waitForTimeout(300);
+  await page.mouse.click(cx, cy);
+  return true;
 }
 
 async function clickAnywhere(page: Page, sel: string, ms: number): Promise<boolean> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (await forceClick(page, sel)) return true;
+    if (await mouseClick(page, sel)) return true;
     await page.waitForTimeout(500);
   }
   return false;

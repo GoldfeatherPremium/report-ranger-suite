@@ -514,77 +514,77 @@ async function downloadSimilarityPdf(
   await viewer.mouse.move(1280, 450).catch(() => {});
   await viewer.waitForTimeout(1_000);
 
-  // ── Steps 2+3: find download button → open menu → click download option ─────
+  // ── Steps 2+3: find download button → open dialog → click "Current View" ──────
   // Register the download listener NOW, before any clicking, so we never miss it.
-  // IMPORTANT: attach .catch() immediately so that if the viewer page closes
-  // during the probe, the rejected promise doesn't become an unhandled rejection
-  // and crash the Node process.
   const downloadPromise = viewer.waitForEvent("download", { timeout: 120_000 });
   downloadPromise.catch(() => {});  // suppress unhandled-rejection crash
 
   await onProgress("dl-step2: looking for download button");
 
-  // Helper: click an element reliably.
-  // The Turnitin toolbar uses <div role="button"> elements.  Plain Playwright
-  // .click() silently fails on these when CSS sets pointer-events:none or the
-  // element is off-screen.  We therefore try three escalating strategies:
-  //   1. force:true (bypasses viewport / pointer-event checks)
-  //   2. native dispatchEvent (fires real DOM click that React handles)
-  //   3. evaluate .click() (calls the DOM method directly)
-  async function forceClickElement(loc: import("playwright").Locator): Promise<void> {
-    const clicked = await loc.click({ timeout: 3_000, force: true }).then(() => true).catch(() => false);
-    if (!clicked) {
-      await loc.evaluate((el) =>
-        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window })),
-      ).catch(() => {});
-    }
-  }
-
-  // Fast path: target the button directly by its known Turnitin class names.
-  // The confirmed HTML is:
+  // The confirmed download button HTML:
   //   <div role="button" title="Download" class="... tii-icon-download sidebar-download-button ...">
+  // Clicking it opens a CENTER DIALOG with three options: "Current View", "Digital Receipt",
+  // "Originally Submitted File".
   const DL_BTN_SEL = [
     '[class*="tii-icon-download"]',
     '[class*="sidebar-download-button"]',
     '[title="Download"]',
   ].join(", ");
 
+  // Only look in the main frame — the toolbar lives there, not in the document sub-iframe.
+  const mainFrame = viewer.mainFrame();
+
   let menuOpened = false;
-  const fastDeadline = Date.now() + 12_000;
-  while (Date.now() < fastDeadline && !menuOpened) {
-    for (const f of viewer.frames()) {
-      const n = await f.locator(DL_BTN_SEL).count().catch(() => 0);
-      if (n > 0) {
-        await onProgress(`dl-step2: found download button (count=${n}), clicking`);
-        await forceClickElement(f.locator(DL_BTN_SEL).first());
-        await viewer.waitForTimeout(2_500);
+  const dlBtnDeadline = Date.now() + 15_000;
+  while (Date.now() < dlBtnDeadline && !menuOpened) {
+    const n = await mainFrame.locator(DL_BTN_SEL).count().catch(() => 0);
+    if (n > 0) {
+      // Get the element's real screen coordinates and use viewer.mouse.click() —
+      // this dispatches trusted low-level pointer events (isTrusted=true) that
+      // React's event handlers respond to.  force:true / dispatchEvent both fail
+      // on Turnitin because the app checks event.isTrusted.
+      const box = await mainFrame.locator(DL_BTN_SEL).first().boundingBox().catch(() => null);
+      if (box) {
+        const cx = Math.round(box.x + box.width / 2);
+        const cy = Math.round(box.y + box.height / 2);
+        await onProgress(`dl-step2: download button found at (${cx},${cy}), hovering then clicking`);
+        await viewer.mouse.move(cx, cy);
+        await viewer.waitForTimeout(400);
+        await viewer.mouse.click(cx, cy);
+        await viewer.waitForTimeout(3_000); // allow dialog animation to complete
+        // Check all frames for the "Current View" dialog option
         for (const fr of viewer.frames()) {
-          if ((await fr.locator(SEL_DL_OPTION).count().catch(() => 0)) > 0) {
+          const cnt = await fr.locator(SEL_DL_OPTION).count().catch(() => 0);
+          if (cnt > 0) {
+            await onProgress(`dl-step2: dialog found (${cnt} options)`);
             menuOpened = true;
             break;
           }
         }
-        if (menuOpened) break;
-        await onProgress("dl-step2: clicked but menu not yet visible, retrying");
+        if (!menuOpened) await onProgress("dl-step2: dialog not visible yet, retrying");
       }
     }
-    if (!menuOpened) await viewer.waitForTimeout(500);
+    if (!menuOpened) await viewer.waitForTimeout(1_000);
   }
 
-  // Probe fallback: iterate every <button> and [role="button"] in the main frame.
-  // Only reached if the fast path's known selectors didn't match — e.g. if Turnitin
-  // changes class names in a future deployment.
+  // Probe fallback: iterate every [role="button"] in the main frame.
+  // Only reached if the class-based fast path didn't match (future UI change).
   if (!menuOpened) {
-    await onProgress("dl-step2: fast path missed — probing main-frame buttons and [role=button]");
-    const mainFrame = viewer.mainFrame();
-    const btns = await mainFrame.locator("button, [role='button']").all().catch(() => [] as Locator[]);
+    await onProgress("dl-step2: fast path missed — probing main-frame [role=button] elements");
+    const btns = await mainFrame.locator("[role='button'], button").all().catch(() => [] as Locator[]);
     await onProgress(`dl-step2: probing ${btns.length} elements`);
     for (const btn of btns) {
       if (viewer.isClosed()) break;
       const beforeUrl = viewer.url();
       try {
-        await forceClickElement(btn);
-        await viewer.waitForTimeout(2_000);
+        const box = await btn.boundingBox().catch(() => null);
+        if (!box) continue;
+        const cx = Math.round(box.x + box.width / 2);
+        const cy = Math.round(box.y + box.height / 2);
+        await viewer.mouse.move(cx, cy);
+        await viewer.waitForTimeout(200);
+        await viewer.mouse.click(cx, cy);
+        await viewer.waitForTimeout(2_500);
         if (viewer.isClosed()) break;
         if (viewer.url() !== beforeUrl) {
           await viewer.goBack({ timeout: 10_000 }).catch(() => {});
