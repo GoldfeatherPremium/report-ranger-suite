@@ -128,14 +128,34 @@ HEARTBEAT_MS=30000`
                 type={reveal ? "text" : "password"}
                 value={data.serviceRoleKey}
                 className="font-mono text-xs"
+                aria-invalid={!keyOk}
               />
               <Button variant="outline" size="icon" onClick={() => setReveal((r) => !r)}>
                 {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
-              <Button variant="outline" size="icon" onClick={() => copy(data.serviceRoleKey, "Service role key")}>
+              <Button variant="outline" size="icon" disabled={!keyOk} onClick={() => copyGuarded(data.serviceRoleKey, "Service role key")}>
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
+            {validation && (
+              keyOk ? (
+                <div className="flex items-center gap-2 text-xs text-success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>
+                    Valid service_role JWT
+                    {validation.ref ? ` · project ${validation.ref}` : ""}
+                    {validation.exp ? ` · expires ${new Date(validation.exp * 1000).toLocaleDateString()}` : ""}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 text-xs text-destructive">
+                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    Invalid key: {validation.reason}. Copying and the .env block are disabled until this is fixed on the server.
+                  </span>
+                </div>
+              )
+            )}
           </div>
 
           <div className="space-y-2">
