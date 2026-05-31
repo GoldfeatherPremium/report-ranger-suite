@@ -32,7 +32,7 @@ function Page() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Turnitin Accounts</h2>
           <p className="text-sm text-muted-foreground">Manage student accounts the VPS worker uses to submit documents.</p>
@@ -45,8 +45,8 @@ function Page() {
         </Dialog>
       </div>
 
-      <div className="rounded-xl border bg-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <table className="w-full min-w-[560px] text-sm">
           <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-4 py-3">Label</th>
