@@ -107,9 +107,16 @@ export async function submitToTurnitin(opts: {
   submissionTimeoutMs: number;
   pollIntervalMs: number;
   uploadTimeoutMs: number;
+  /** When set, the document was already submitted in a prior attempt — skip the
+   *  upload modal and go straight to polling the similarity score on the same slot. */
+  existingSubmissionId?: string | null;
+  /** Called right after "Submission Complete!" so the worker can save the
+   *  submission ID immediately (before the slow similarity-score wait). */
+  onSubmitted?: (submissionId: string) => Promise<void>;
   onProgress: (msg: string) => Promise<void>;
 }): Promise<SubmissionResult> {
-  const { slot, fileBytes, originalName, headless, submissionTimeoutMs, pollIntervalMs, uploadTimeoutMs, onProgress } = opts;
+  const { slot, fileBytes, originalName, headless, submissionTimeoutMs, pollIntervalMs, uploadTimeoutMs,
+          existingSubmissionId, onSubmitted, onProgress } = opts;
 
   const tmp = await mkdtemp(join(tmpdir(), "tii-"));
   const filePath = join(tmp, originalName);
@@ -180,6 +187,16 @@ export async function submitToTurnitin(opts: {
       await onProgress("WARNING: slot has no submit_url; staying on the post-login page");
     }
 
+    // ── RESUME PATH: document already submitted in a prior attempt ─────────────
+    // Skip the entire upload modal — the document is already in Turnitin.
+    // Just wait for the similarity score on this same slot's dashboard.
+    if (existingSubmissionId) {
+      await onProgress(`resuming score-wait (already submitted, id=${existingSubmissionId})`);
+      const submissionId = await waitForSimilarity(page, submissionTimeoutMs, pollIntervalMs, onProgress);
+      const pdf = await downloadSimilarityPdf(page, onProgress);
+      return { pdf, submissionId: submissionId ?? existingSubmissionId };
+    }
+
     // ── Step 1: open the Submit File modal ─────────────────────────────────────
     await onProgress("step1: clicking 'Upload Submission'");
     if (!(await tryClickInAnyFrame(page, SEL.uploadSubmissionButton, 30_000))) {
@@ -226,6 +243,12 @@ export async function submitToTurnitin(opts: {
     }
     await tryClickInAnyFrame(page, SEL.closeModalButton, 10_000);
     await onProgress("submission complete; dialog closed");
+
+    // Immediately save that this document has been submitted.  We extract the
+    // submission_id from any <a href="...oid=N..."> link on the dashboard if
+    // available; otherwise we use a sentinel so retries know to skip re-upload.
+    const sentinelId = await extractSubmissionIdFromPage(page) ?? "TII:submitted";
+    await onSubmitted?.(sentinelId);
 
     // ── Step 7: wait for the similarity score on the dashboard ─────────────────
     await onProgress("waiting for similarity score");
@@ -376,6 +399,22 @@ async function dumpPageControls(page: Page, onProgress: (m: string) => Promise<v
   }
 }
 
+// Try to extract a Turnitin submission/paper oid from the current page.
+// After a successful submission, Turnitin typically renders the paper title as
+// an <a> whose href contains "oid=<number>".  Returns null if not found.
+async function extractSubmissionIdFromPage(page: Page): Promise<string | null> {
+  try {
+    for (const f of page.frames()) {
+      const href = await f.locator('a[href*="oid="]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
+      if (href) {
+        const m = href.match(/oid=(\d+)/);
+        if (m) return m[1];
+      }
+    }
+  } catch { /* best-effort */ }
+  return null;
+}
+
 async function waitForSimilarity(page: Page, timeoutMs: number, pollMs: number, onProgress: (m: string) => Promise<void>): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   let submissionId: string | null = null;
@@ -385,10 +424,11 @@ async function waitForSimilarity(page: Page, timeoutMs: number, pollMs: number, 
       await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
     } catch { /* ignore */ }
 
-    // Try to extract submission id from URL or a hidden field
+    // Try to extract submission id from URL or from a paper link on the dashboard
     const url = page.url();
     const m = url.match(/oid=(\d+)/) ?? url.match(/submission[_-]?id=(\d+)/i);
     if (m) submissionId = m[1];
+    if (!submissionId) submissionId = await extractSubmissionIdFromPage(page);
 
     // Look for a percentage on the similarity cell
     const text = await page.locator(SEL.similarityCell).first().innerText({ timeout: 5_000 }).catch(() => "");
