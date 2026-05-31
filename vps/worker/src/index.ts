@@ -48,7 +48,15 @@ async function processOne() {
       onProgress: async (m) => { await log(WORKER_ID, job.id, "info", m); await touchJob(job.id); },
     });
 
-    await uploadReport(job.user_id, job.id, pdf);
+    if (pdf) {
+      await uploadReport(job.user_id, job.id, pdf);
+      await log(WORKER_ID, job.id, "info", `report uploaded`);
+    } else {
+      // Document was submitted to Turnitin but the report PDF wasn't retrieved
+      // (report download not implemented yet). Mark the job done so it is NOT
+      // resubmitted on retry — re-running would create a duplicate submission.
+      await log(WORKER_ID, job.id, "warn", `submitted to Turnitin; no report downloaded yet`);
+    }
     await markJobDone(job.id, submissionId);
     await log(WORKER_ID, job.id, "info", `done`);
   } catch (err) {

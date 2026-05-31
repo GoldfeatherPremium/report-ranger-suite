@@ -9,15 +9,22 @@ const SEL = {
   emailInput: 'input[name="email"], input#email, input[type="email"], input[name="user_email"], input[autocomplete="username"]',
   passwordInput: 'input[name="password"], input[name="user_password"], input#password, input#user_password, input[type="password"]',
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
-  submitFileButton: 'a:has-text("Submit"), button:has-text("Submit"), input[value="Submit" i], [title*="Submit" i], [aria-label*="Submit" i]',
+  // Assignment dashboard -> opens the "Submit File" modal.
+  uploadSubmissionButton: 'button:has-text("Upload Submission"), a:has-text("Upload Submission")',
+  // Inside the "Submit File" modal.
+  submissionTitle: 'input[placeholder="Untitled" i], input[name="title" i], input[aria-label*="title" i]',
   fileInput: 'input[type="file"]',
-  confirmSubmit: 'button:has-text("Confirm"), input[value="Confirm"]',
+  uploadAndReviewButton: 'button:has-text("Upload and Review")',
+  submitToTurnitinButton: 'button:has-text("Submit to Turnitin")',
+  closeModal: 'button[aria-label="Close" i], button[title="Close" i], button.close',
+  // Report retrieval (mapped in a later iteration).
   similarityCell: '[data-similarity], .similarity-score, .or-link',
   downloadReportButton: 'a:has-text("Download"), button:has-text("Download")',
 };
 
 export type SubmissionResult = {
-  pdf: Buffer;
+  // null = the document was submitted but no report PDF was downloaded yet.
+  pdf: Buffer | null;
   submissionId: string | null;
 };
 
@@ -89,46 +96,67 @@ export async function submitToTurnitin(opts: {
     }
     await onProgress("logged in");
 
-    // Navigate to the slot's submit URL if provided, otherwise rely on the
-    // default class list view.
-    if (slot.submit_url) {
-      await onProgress(`navigating to submit_url: ${slot.submit_url}`);
-      await page.goto(slot.submit_url, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      await page.waitForLoadState("load", { timeout: 60_000 }).catch(() => {});
-    } else {
-      await onProgress("no submit_url set on this slot — staying on the post-login home page");
-    }
-    await onProgress(`submit page: url=${page.url()} title=${await page.title().catch(() => "?")}`);
-
-    await onProgress("opening submit form");
-    try {
-      await clickInAnyFrame(page, SEL.submitFileButton, 30_000);
-    } catch {
-      await dumpPageControls(page, onProgress);
+    // The slot's Submit URL must be the assignment dashboard, e.g.
+    //   https://www.turnitin.com/assignment/type/paper/dashboard/<id>?lang=en_us
+    // Going straight there skips the class/assignment navigation.
+    if (!slot.submit_url) {
       throw new Error(
-        "Could not find a 'Submit' control after login. The [diag] lines above list every link/button on this page — share them and I'll map the class -> assignment -> submit navigation. (If the slot has no submit_url, set it to the assignment's submission page.)",
+        "This slot has no Submit URL. Set it to the Turnitin assignment dashboard URL (…/assignment/type/paper/dashboard/<id>).",
       );
     }
+    await onProgress(`opening assignment: ${slot.submit_url}`);
+    await page.goto(slot.submit_url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForLoadState("load", { timeout: 60_000 }).catch(() => {});
+    await onProgress(`assignment page: url=${page.url()} title=${await page.title().catch(() => "?")}`);
 
-    await onProgress("uploading file");
-    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 30_000 }).catch(() => null);
-    const directInput = await page.$(SEL.fileInput);
-    if (directInput) {
-      await directInput.setInputFiles(filePath);
-    } else {
-      const chooser = await fileChooserPromise;
-      if (!chooser) throw new Error("No file chooser appeared");
-      await chooser.setFiles(filePath);
+    // 1) Open the "Submit File" modal.
+    await onProgress("clicking Upload Submission");
+    try {
+      await clickInAnyFrame(page, SEL.uploadSubmissionButton, 45_000);
+    } catch {
+      await dumpPageControls(page, onProgress);
+      throw new Error("Could not find the 'Upload Submission' button on the assignment dashboard — see [diag] lines.");
     }
-    await clickWhenVisible(page, SEL.confirmSubmit, 60_000).catch(() => {});
 
-    await onProgress("waiting for similarity score");
-    const submissionId = await waitForSimilarity(page, submissionTimeoutMs, pollIntervalMs, onProgress);
+    // 2) Fill the submission title (defaults to the file name) and attach the file.
+    await onProgress("filling submission form");
+    await fillInAnyFrame(page, SEL.submissionTitle, originalName, 20_000).catch(() => {});
+    const fileFrame = await waitForFrameWith(page, SEL.fileInput, 30_000);
+    if (!fileFrame) {
+      await dumpPageControls(page, onProgress);
+      throw new Error("No file input appeared in the Submit File modal — see [diag] lines.");
+    }
+    await fileFrame.locator(SEL.fileInput).first().setInputFiles(filePath);
+    await onProgress("file attached");
 
-    await onProgress("downloading similarity PDF");
-    const pdf = await downloadSimilarityPdf(page);
+    // 3) Upload & review (large files take longer).
+    await clickInAnyFrame(page, SEL.uploadAndReviewButton, 30_000);
+    await onProgress("uploading, waiting for the review step");
 
-    return { pdf, submissionId };
+    // 4) Confirm the submission. The review step can take a while to render
+    //    while the file uploads/processes.
+    await clickInAnyFrame(page, SEL.submitToTurnitinButton, Math.min(submissionTimeoutMs, 600_000));
+    await onProgress("clicked Submit to Turnitin, waiting for confirmation");
+
+    // 5) Wait for "Submission Complete!".
+    const completed = await waitForTextInAnyFrame(page, /submission complete/i, 120_000);
+    if (!completed) {
+      await dumpPageControls(page, onProgress);
+      throw new Error("Did not see 'Submission Complete' after submitting — see [diag] lines.");
+    }
+    await onProgress("submission complete");
+
+    // Close the modal (best effort; not fatal).
+    await clickInAnyFrame(page, SEL.closeModal, 5_000).catch(() => page.keyboard.press("Escape").catch(() => {}));
+
+    // NOTE: report retrieval (wait for Similarity %, open the report, download
+    // the PDF) is not mapped yet, so we stop here with the document submitted.
+    // Returning pdf=null tells the caller to mark the job done WITHOUT trying
+    // to download a report — and, importantly, without resubmitting on retry.
+    await onProgress("document submitted to Turnitin (report download pending — not yet implemented)");
+    void pollIntervalMs; // reserved for the report-polling step
+
+    return { pdf: null, submissionId: null };
   } finally {
     await browser?.close().catch(() => {});
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
@@ -148,6 +176,30 @@ async function locateInAnyFrame(page: Page, selector: string): Promise<Frame | n
     if (n > 0) return f;
   }
   return null;
+}
+
+// Poll until some frame (main page or iframe) contains the selector.
+async function waitForFrameWith(page: Page, selector: string, timeoutMs: number): Promise<Frame | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const f = await locateInAnyFrame(page, selector);
+    if (f) return f;
+    await page.waitForTimeout(500);
+  }
+  return null;
+}
+
+// Poll until any frame's visible text matches the regex.
+async function waitForTextInAnyFrame(page: Page, re: RegExp, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const f of page.frames()) {
+      const body = await f.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
+      if (re.test(body)) return true;
+    }
+    await page.waitForTimeout(1_000);
+  }
+  return false;
 }
 
 async function fillInAnyFrame(page: Page, selector: string, value: string, timeoutMs: number): Promise<boolean> {
