@@ -161,7 +161,7 @@ HEARTBEAT_MS=30000`
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Full .env for VPS worker</Label>
-              <Button variant="outline" size="sm" onClick={() => copy(envBlock, ".env contents")}>
+              <Button variant="outline" size="sm" disabled={!keyOk} onClick={() => copyGuarded(envBlock, ".env contents")}>
                 <Copy className="mr-2 h-4 w-4" /> Copy all
               </Button>
             </div>
