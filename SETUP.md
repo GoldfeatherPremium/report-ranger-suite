@@ -53,8 +53,11 @@ In the app, go to **Admin → Turnitin**:
    The password is encrypted inside Postgres and never sent back to the
    browser.
 2. Open the account → **Add slot** for each class/assignment you can submit
-   to. A slot has a `submit_url` (deep link to the assignment) and a
-   `cooldown_hours` (default 24) so the same slot isn't reused too soon.
+   to. A slot needs the **assignment dashboard URL** (the page with the blue
+   "Upload Submission" button — open the class, click "Open" on the assignment,
+   and copy that URL, e.g.
+   `https://www.turnitin.com/assignment/type/paper/dashboard/<id>?lang=en_us`)
+   and a `cooldown_hours` (default 24) so the same slot isn't reused too soon.
 
 The worker only picks jobs when at least one **active account** has an
 **active, off-cooldown slot**. No slots = jobs sit in `queued` forever.

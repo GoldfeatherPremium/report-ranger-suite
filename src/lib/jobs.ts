@@ -55,6 +55,7 @@ export async function uploadAndCreateJob(userId: string, file: File): Promise<{ 
     size_bytes: file.size,
     status: "queued",
     queued_at: new Date().toISOString(),
+    max_attempts: 5,
   });
   if (insErr) {
     await supabase.storage.from("documents").remove([key]);

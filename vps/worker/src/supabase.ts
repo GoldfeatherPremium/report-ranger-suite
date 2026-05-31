@@ -128,6 +128,15 @@ export async function uploadReport(userId: string, jobId: string, pdf: Buffer): 
   return path;
 }
 
+export async function markJobSubmitted(jobId: string, submissionId: string) {
+  // Called immediately after "Submission Complete!" so that retries know the
+  // document is already in Turnitin and must reuse the same slot.
+  await supabase.from("jobs").update({
+    turnitin_submission_id: submissionId,
+    last_polled_at: new Date().toISOString(),
+  }).eq("id", jobId);
+}
+
 export async function markJobDone(jobId: string, submissionId: string | null) {
   await supabase.from("jobs").update({
     status: "completed",
@@ -140,14 +149,33 @@ export async function markJobDone(jobId: string, submissionId: string | null) {
     .eq("job_id", jobId).is("freed_at", null);
 }
 
-export async function markJobFailed(jobId: string, attempts: number, max: number, error: string) {
+export async function markJobFailed(jobId: string, attempts: number, max: number, error: string, submissionId?: string | null) {
+  const alreadySubmitted = submissionId != null;
+
   if (attempts >= max) {
+    // Out of retries — mark permanently failed and always free the slot.
     await supabase.from("jobs").update({
       status: "failed",
       finished_at: new Date().toISOString(),
       error,
     }).eq("id", jobId);
+    await supabase.from("turnitin_slot_usage")
+      .update({ freed_at: new Date().toISOString() })
+      .eq("job_id", jobId).is("freed_at", null);
+  } else if (alreadySubmitted) {
+    // Document was already submitted to Turnitin — requeue but KEEP the slot
+    // assignment so the retry polls the same assignment dashboard instead of
+    // uploading to a new slot.  The slot_usage row also stays open.
+    await supabase.from("jobs").update({
+      status: "queued",
+      error,
+      worker_id: null,
+      // slot_id intentionally NOT nulled — preserved for the retry
+      queued_at: new Date().toISOString(),
+    }).eq("id", jobId);
+    // Do NOT free turnitin_slot_usage — the slot must stay "in use".
   } else {
+    // Upload/submission itself failed — free the slot so any slot can be tried again.
     await supabase.from("jobs").update({
       status: "queued",
       error,
@@ -155,10 +183,10 @@ export async function markJobFailed(jobId: string, attempts: number, max: number
       worker_id: null,
       queued_at: new Date().toISOString(),
     }).eq("id", jobId);
+    await supabase.from("turnitin_slot_usage")
+      .update({ freed_at: new Date().toISOString() })
+      .eq("job_id", jobId).is("freed_at", null);
   }
-  await supabase.from("turnitin_slot_usage")
-    .update({ freed_at: new Date().toISOString() })
-    .eq("job_id", jobId).is("freed_at", null);
 }
 
 export async function touchJob(jobId: string) {

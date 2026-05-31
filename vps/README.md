@@ -81,10 +81,30 @@ systemctl disable --now turnitin-worker-update.timer    # turn it back off
 
 ---
 
-## Tuning the Turnitin flow
+## How the Turnitin flow works
 
-The default selectors in `worker/src/turnitin.ts` cover the standard
-turnitin.com student UI. If your accounts use a different theme (Feedback
-Studio variants, institutional skins), tweak the selectors at the top of the
-file — they're all in one block. Run with `HEADLESS=false` on a desktop with a
-display to debug visually.
+The worker reproduces the exact manual student flow:
+
+1. **Login** with the slot's account.
+2. **Go to the assignment dashboard** — the slot's `submit_url` must be the
+   `turnitin.com/assignment/type/paper/dashboard/<id>?lang=en_us` page (the one
+   with the blue **"Upload Submission"** button).
+3. Click **"Upload Submission"** → the *Submit File* modal opens.
+4. Attach the file to the hidden `<input type=file>` (no OS dialog) and set the
+   **Submission Title** (defaults to the file name).
+5. Click **"Upload and Review"** and wait for the review screen (the upload can
+   take 15s–5min — tuned by `UPLOAD_TIMEOUT_MS`).
+6. Click **"Submit to Turnitin"**, wait for **"Submission Complete!"**, close
+   the modal.
+7. Poll the dashboard until the **Similarity %** appears
+   (`SUBMISSION_TIMEOUT_MS`, polled every `POLL_INTERVAL_MS`).
+8. Click the **%** to open the report viewer (`ev.turnitin.com/app/carta/e`),
+   click the **download arrow**, then **"Current View"** to download the PDF.
+
+## Tuning the selectors
+
+All selectors live in one `SEL` block at the top of `worker/src/turnitin.ts`.
+If any step can't find its element, the worker logs `[diag]` lines listing every
+button/link/input on the page (and in each iframe) to the `worker_logs` table —
+read those in **Admin → logs** and adjust the matching `SEL.*` entry. Run with
+`HEADLESS=false` on a desktop with a display to watch the browser live.

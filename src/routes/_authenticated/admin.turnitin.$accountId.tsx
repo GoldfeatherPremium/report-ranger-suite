@@ -154,7 +154,11 @@ function AddSlotDialog({ accountId, onDone }: { accountId: string; onDone: () =>
       <DialogHeader><DialogTitle>Add slot</DialogTitle></DialogHeader>
       <form onSubmit={submit} className="space-y-3">
         <div><Label>Label</Label><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Class A / Assignment 1" /></div>
-        <div><Label>Submit URL (optional)</Label><Input value={submitUrl} onChange={(e) => setSubmitUrl(e.target.value)} placeholder="https://www.turnitin.com/..." /></div>
+        <div>
+          <Label>Assignment dashboard URL</Label>
+          <Input value={submitUrl} onChange={(e) => setSubmitUrl(e.target.value)} placeholder="https://www.turnitin.com/assignment/type/paper/dashboard/<id>?lang=en_us" />
+          <p className="text-xs text-muted-foreground mt-1">The page with the blue “Upload Submission” button. Open the class → click “Open” on the assignment → copy that URL.</p>
+        </div>
         <div><Label>Cooldown (hours)</Label><Input type="number" min={1} value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></div>
         <DialogFooter><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save slot"}</Button></DialogFooter>
       </form>
