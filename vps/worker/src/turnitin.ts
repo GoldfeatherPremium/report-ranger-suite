@@ -71,9 +71,9 @@ const SEL = {
   ].join(", "),
 
   // ── Resubmit button (used slots — dashboard already has a previous paper) ───
-  // Turnitin renders this as an icon input, image anchor, or text button.
-  // Keep selectors attribute-specific; avoid broad class/tag wildcards that
-  // can match non-clickable elements before the real icon button.
+  // Turnitin's classic UI renders this as an icon whose text content is an
+  // Angular i18n key (e.g. "ts-turnitin.lang.EntResubmit"), so text-based
+  // selectors never fire.  The class attribute is the reliable signal.
   resubmitButton: [
     'input[value="Resubmit"]',
     'input[value*="resubmit" i]',
@@ -85,6 +85,7 @@ const SEL = {
     'a:has(img[alt*="resubmit" i])',
     'a:has(img[title*="resubmit" i])',
     'button:has-text("Resubmit")',
+    '[class*="resubmit"]',
   ].join(", "),
 
   // ── "Confirm Resubmission" dialog ───────────────────────────────────────────
@@ -473,6 +474,7 @@ async function dumpPageControls(page: Page, onProgress: (m: string) => Promise<v
               a.id ? `id=${a.id}` : "",
               a.getAttribute("aria-label") ? `aria=${a.getAttribute("aria-label")}` : "",
               a.placeholder ? `ph=${a.placeholder}` : "",
+              a.className ? `cls=${a.className.toString().slice(0, 60)}` : "",
               (a.textContent || "").trim() ? `txt=${(a.textContent || "").trim().slice(0, 30)}` : "",
             ]
               .filter(Boolean)
