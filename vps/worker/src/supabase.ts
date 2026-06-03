@@ -219,6 +219,37 @@ export async function heartbeat(workerId: string, activeJobs: number) {
   });
 }
 
+// Called when Turnitin denies a resubmit on the current slot.
+// Frees the current slot usage and atomically assigns the next available slot.
+// Returns the new slot_id, or null if no slot is currently available.
+export async function reassignJobSlot(
+  jobId: string,
+  excludeSlotIds: string[],
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("reassign_job_slot", {
+    p_job_id: jobId,
+    p_exclude_slot_ids: excludeSlotIds,
+  });
+  if (error) throw error;
+  return (data as string | null) ?? null;
+}
+
+// Called when all slots have denied resubmission.
+// Frees the current slot usage and puts the job back in the queue with no
+// slot assigned so any worker can pick it up when a slot becomes free.
+export async function requeueJobNoSlot(jobId: string, reason: string) {
+  await supabase.from("turnitin_slot_usage")
+    .update({ freed_at: new Date().toISOString() })
+    .eq("job_id", jobId).is("freed_at", null);
+  await supabase.from("jobs").update({
+    status: "queued",
+    slot_id: null,
+    worker_id: null,
+    error: reason,
+    queued_at: new Date().toISOString(),
+  }).eq("id", jobId);
+}
+
 export async function log(workerId: string, jobId: string | null, level: "info" | "warn" | "error", message: string, metadata?: object) {
   await supabase.from("worker_logs").insert({
     worker_id: workerId, job_id: jobId, level, message,

@@ -6,6 +6,15 @@ import type { SlotInfo } from "./supabase.js";
 import { aiDetectPageState } from "./ai-resolver.js";
 import { findElementWithAI } from "./ai-helper.js";
 
+// Thrown when Turnitin explicitly refuses a resubmission on the current slot.
+// The worker catches this, frees the slot, and tries the next available one.
+export class ResubmitDeniedError extends Error {
+  constructor(slotLabel: string) {
+    super(`Turnitin refused resubmission on slot "${slotLabel}" — trying next slot`);
+    this.name = "ResubmitDeniedError";
+  }
+}
+
 // === Selectors — adjust here if Turnitin UI shifts ===
 // The flow below matches the real Turnitin "classic" student experience:
 //   login → assignment dashboard → "Upload Submission" → Submit File modal →
@@ -97,6 +106,20 @@ const SEL = {
     'a:has-text("Confirm")',
   ].join(", "),
 
+  // ── Resubmit-denied indicators ───────────────────────────────────────────────
+  // Turnitin disables the resubmit button (disabled / aria-disabled) and shows
+  // a timestamp message when resubmissions are not allowed.  These selectors
+  // catch the disabled-button state before we even try to click.
+  // Add more selectors here after inspecting the live page with DevTools.
+  resubmitDenied: [
+    '[class*="resubmit"][disabled]',
+    '[class*="resubmit"][aria-disabled="true"]',
+    'button[disabled][class*="resubmit"]',
+    'input[disabled][value*="Resubmit" i]',
+    'a[class*="resubmit"][aria-disabled="true"]',
+    '[class*="resubmit"].disabled',
+  ].join(", "),
+
   // ── Assignment dashboard — the clickable similarity-score link (e.g. "20%") ──
   // Clicking it opens the viewer in a new tab (ev.turnitin.com/app/carta/e).
   similarityCell: [
@@ -133,6 +156,26 @@ const SEL = {
     '[data-testid*="current-view" i]',
   ].join(", "),
 };
+
+// Turnitin message patterns when resubmission is refused.
+// Sources: Turnitin help centre + observed student-facing messages.
+const RESUBMIT_DENIED_TEXTS: RegExp[] = [
+  // Turnitin's own help-centre wording
+  /cannot resubmit/i,
+  /resubmission is not allowed/i,
+  /resubmissions.*not.*enabled/i,
+  /not allowed to resubmit/i,
+  /resubmit.*not.*available/i,
+  // "You have N resubmission(s) left" warning modal (last attempt)
+  /you have \d+ resubmission.* left/i,
+  // "when you can submit next" timestamp message shown on disabled button
+  /when you can submit next/i,
+  /submission becomes available/i,
+  // Generic fallbacks
+  /you have already submitted/i,
+  /submission limit/i,
+  /paper already exists/i,
+];
 
 // ── Smart helpers: try hardcoded selector first, fall back to AI on timeout ────
 //
@@ -180,6 +223,30 @@ async function smartFill(
 
   await log(`[warn] [ai-fallback] intent="${intent}" used selector=${ai.selector} — update SEL`);
   return fillInAnyFrame(page, ai.selector, value, 5_000);
+}
+
+// Detects when Turnitin explicitly refuses a resubmission on the current slot.
+// Checks: hardcoded deny selectors (stub) → page text heuristics → AI fallback.
+// Returns true only on a clear denial signal; false on ambiguity (worker retries).
+async function isResubmitDenied(page: Page, onProgress: Logger): Promise<boolean> {
+  if (SEL.resubmitDenied && (await locateInAnyFrame(page, SEL.resubmitDenied))) {
+    await onProgress("[warn] resubmit denied detected (disabled button selector matched)");
+    return true;
+  }
+  const body = await page.evaluate(() => document.body.innerText).catch(() => "");
+  for (const pat of RESUBMIT_DENIED_TEXTS) {
+    if (pat.test(body)) {
+      await onProgress(`[warn] resubmit denied detected (text match: ${pat})`);
+      return true;
+    }
+  }
+  const ai = await findElementWithAI(page,
+    "an error message, alert, or notice saying resubmission is not allowed or the slot is locked for resubmission");
+  if (ai) {
+    await onProgress(`[warn] resubmit denied detected (AI: ${ai.reasoning})`);
+    return true;
+  }
+  return false;
 }
 
 export type SubmissionResult = {
@@ -310,31 +377,22 @@ export async function submitToTurnitin(opts: {
         const hasUpload   = (await locateInAnyFrame(page, SEL.uploadSubmissionButton)) !== null;
 
         if (hasResubmit) {
-          // ── Cooldown gate ──────────────────────────────────────────────────
-          // DB claim_next_job already enforces this, but double-check here so
-          // a misconfigured slot gets a clear error instead of a Turnitin error.
-          if (slot.last_submitted_at) {
-            const hoursSince = (Date.now() - new Date(slot.last_submitted_at).getTime()) / 3_600_000;
-            if (hoursSince < slot.cooldown_hours) {
-              const waitH = Math.ceil(slot.cooldown_hours - hoursSince);
-              throw new Error(
-                `Slot "${slot.slot_label}" has an existing document but the ${slot.cooldown_hours}h ` +
-                `cooldown has not elapsed (last submitted ${hoursSince.toFixed(1)}h ago). ` +
-                `Try again in ~${waitH}h.`,
-              );
-            }
-            await onProgress(
-              `step1: document detected — slot last submitted ${hoursSince.toFixed(1)}h ago` +
-              ` (cooldown ${slot.cooldown_hours}h ✓) — resubmit flow`,
-            );
-          } else {
-            await onProgress("step1: document detected (no prior usage record in system) — resubmit flow");
+          await onProgress("step1: existing document detected — checking if resubmit is allowed");
+          // Pre-click: if the button is already disabled, Turnitin won't allow it.
+          if (await isResubmitDenied(page, onProgress)) {
+            throw new ResubmitDeniedError(slot.slot_label);
           }
+          await onProgress("step1: resubmit allowed — proceeding");
           await smartClick(page, SEL.resubmitButton,
             "the resubmit or re-upload icon button for the existing paper submission", onProgress, 10_000);
           await onProgress("step1b: confirming resubmission dialog");
           await smartClick(page, SEL.confirmResubmission,
             "the Confirm button in the Confirm Resubmission dialog", onProgress, 15_000);
+          // Allow any denial message to render, then check if Turnitin refused
+          await page.waitForTimeout(1_500);
+          if (await isResubmitDenied(page, onProgress)) {
+            throw new ResubmitDeniedError(slot.slot_label);
+          }
           step1Done = true;
         } else if (hasUpload) {
           await onProgress("step1: no existing document — fresh upload flow");
