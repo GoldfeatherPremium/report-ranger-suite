@@ -108,3 +108,49 @@ If any step can't find its element, the worker logs `[diag]` lines listing every
 button/link/input on the page (and in each iframe) to the `worker_logs` table —
 read those in **Admin → logs** and adjust the matching `SEL.*` entry. Run with
 `HEADLESS=false` on a desktop with a display to watch the browser live.
+
+---
+
+## AI selector fallback (optional)
+
+When Turnitin changes their HTML and a hardcoded selector stops working, the
+worker can automatically recover using Google Gemini (free tier) — no human
+intervention required for most UI changes.
+
+**How it works:** every critical click and fill (`smartClick` / `smartFill`)
+tries the hardcoded selector first with a short timeout. If that selector times
+out, the worker extracts a compact list of interactive elements from the live
+page (text + attributes only — no screenshots) and asks `gemini-2.5-flash` to
+identify the right one. If Gemini returns a match, the worker retries with the
+AI-derived selector and logs a `[warn]` entry so you know which `SEL.*` value
+needs a permanent update.
+
+**Enable it:**
+
+1. Get a free API key at <https://aistudio.google.com/apikey> (no credit card).
+2. Paste it into `/opt/dochub/vps/worker/.env`:
+   ```
+   GEMINI_API_KEY=AIza...
+   ```
+3. Restart the worker:
+   ```bash
+   systemctl restart turnitin-worker
+   ```
+
+**Monitor fallback events:**
+
+```bash
+# Live tail
+journalctl -u turnitin-worker -f | grep ai-fallback
+
+# Or in the app: Admin → Logs, filter level = warn
+# Each line looks like:
+#   [warn] [ai-fallback] intent="Upload and Review button" used selector=#btn-upload — update SEL
+```
+
+Use the logged selector to update the matching `SEL.*` entry in
+`worker/src/turnitin.ts` so the next run uses it directly without an AI call.
+
+**Free-tier capacity:** 1,500 requests/day per key — comfortably covers ~20
+docs/day even with multiple fallbacks per job. The AI is only called when a
+hardcoded selector fails, so normal runs make zero API calls.
