@@ -360,62 +360,68 @@ export async function submitToTurnitin(opts: {
 
     // ── Step 1: click ⋮ on any row → "Resubmit file" ─────────────────────────
     // The assignment page always has pre-existing student rows (no empty rows).
-    // Each ⋮ opens a menu with: Open report / Copy submission ID / Resubmit file
-    // / Grant extension / Download / Request deletion.
-    // We iterate the ⋮ buttons top-to-bottom, skipping any row that is denied
-    // or shows an unexpected menu. Safety: we ONLY proceed when the opened popup
-    // contains "Resubmit file" or "Submit file" — anything else is closed immediately.
-    await onProgress("step1: clicking ⋮ on a student row → Resubmit file");
+    // The submission table is rendered inside a Turnitin iframe, so we must
+    // search ALL frames — page.locator() only sees the main document.
+    await onProgress("step1: searching all frames for ⋮ buttons in submission table");
     let submitFileOpened = false;
     {
       const step1Deadline = Date.now() + 90_000;
       while (Date.now() < step1Deadline && !submitFileOpened) {
 
-        // Collect all ⋮ buttons visible on the page
-        let allDots = await page.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
-
-        // Fallback: look for buttons inside the submission table rows directly
-        if (allDots.length === 0) {
-          allDots = await page.locator("table tr td:last-child button, table tr td button").all().catch(() => [] as Locator[]);
+        // Search every frame for ⋮ buttons and track which frame owns them
+        const frameDots: { frame: Frame; locator: Locator }[] = [];
+        for (const frame of page.frames()) {
+          // Primary selectors
+          let locs = await frame.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
+          // Fallback: last-cell button inside any table row in this frame
+          if (locs.length === 0) {
+            locs = await frame.locator("table tbody tr td:last-child button, table tr td:last-child button").all().catch(() => [] as Locator[]);
+          }
+          // Broader fallback: any button in any table cell
+          if (locs.length === 0) {
+            locs = await frame.locator("table td button, [role=row] button, [role=gridcell] button").all().catch(() => [] as Locator[]);
+          }
+          for (const loc of locs) {
+            frameDots.push({ frame, locator: loc });
+          }
         }
 
-        if (allDots.length === 0) {
+        if (frameDots.length === 0) {
           // AI fallback — last resort
           const ai = await findElementWithAI(page, 'the vertical three-dot ⋮ More button in the rightmost "More" column of the student submission table row');
           if (ai) {
-            await onProgress(`[warn] step1: no ⋮ buttons found via selectors, using AI fallback: ${ai.selector}`);
+            await onProgress(`[warn] step1: AI fallback selector: ${ai.selector}`);
             await tryClickInAnyFrame(page, ai.selector, 5_000);
-            await page.waitForTimeout(800);
+            await page.waitForTimeout(1_000);
             const hasResubmit = (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null;
             const hasSubmit   = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
-            if (hasResubmit || hasSubmit) {
-              allDots = []; // fall through to menu handling below after the while-loop restarts
-            } else {
-              await onProgress("[warn] step1: AI-found button opened unexpected menu — closing");
+            if (!hasResubmit && !hasSubmit) {
+              await onProgress("[warn] step1: AI button opened unexpected menu — closing");
               await page.keyboard.press("Escape");
             }
+          } else {
+            await onProgress(`[warn] step1: no ⋮ buttons in any frame (${page.frames().length} frames) — waiting`);
           }
-          await page.waitForTimeout(1_500);
+          await page.waitForTimeout(2_000);
           continue;
         }
 
-        await onProgress(`step1: found ${allDots.length} ⋮ button(s) — trying each until one opens Resubmit file`);
+        await onProgress(`step1: found ${frameDots.length} ⋮ button(s) across ${page.frames().length} frames — trying each`);
 
-        for (const dotBtn of allDots) {
+        for (const { locator: dotBtn } of frameDots) {
           if (submitFileOpened) break;
           try {
             const box = await dotBtn.boundingBox().catch(() => null);
             if (!box) continue;
 
-            // Scroll the button into view then click it
             await dotBtn.scrollIntoViewIfNeeded().catch(() => {});
             await page.mouse.move(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
             await page.waitForTimeout(150);
             await page.mouse.click(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
             await page.waitForTimeout(800);
 
-            const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))   !== null;
-            const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem))  !== null;
+            const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))  !== null;
+            const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
 
             // SAFETY: close immediately if not a submission menu
             if (!hasResubmit && !hasSubmitFile) {
@@ -425,7 +431,6 @@ export async function submitToTurnitin(opts: {
             }
 
             if (hasSubmitFile) {
-              // Unexpected but handle it — fresh row with no prior submission
               await onProgress("step1: found 'Submit file' — clicking it");
               await smartClick(page, SEL.submitFileMenuItem, "the Submit file menu item", onProgress, 5_000);
               submitFileOpened = true;
