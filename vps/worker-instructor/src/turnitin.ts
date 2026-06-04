@@ -24,25 +24,20 @@ const SEL = {
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
 
   // ⋮ "More" button on each student row.
-  // Turnitin uses Stencil.js web components: the button is <tii-grn-button>
-  // inside a <tii-grn-dropdown> wrapper per row.
-  // The step1 loop validates the opened popup contains "Resubmit"/"Submit file"
-  // before proceeding — any other popup is closed immediately (safety gate).
+  // CONFIRMED FROM [diag]: each row's action button is a plain light-DOM
+  //   <button class="options-dropdown" aria-haspopup="true">More actions</button>
+  // NOTE: the page also has decoy aria-haspopup buttons ("Instructor", "English"
+  // nav) — we must NOT click those, so we scope by the "options-dropdown" class
+  // and the "More actions" text. The safety gate is a second line of defence.
   moreDotsButton: [
-    // Turnitin web-component selectors (primary — confirmed from DevTools)
+    // Primary — confirmed exact match
+    'button.options-dropdown',
+    'button[aria-haspopup="true"]:has-text("More actions")',
+    'button:has-text("More actions")',
+    '[aria-label*="more actions" i]',
+    // Web-component fallbacks (the popup menu items are tii-grn-* components)
     'tii-grn-dropdown tii-grn-button',
-    'tii-grn-dropdown-button tii-grn-button',
-    'tii-grn-button[part*="trigger" i]',
-    // Fallback: any tii-grn-button in a table row context
     'table tii-grn-button',
-    '[role="row"] tii-grn-button',
-    '[role="gridcell"] tii-grn-button',
-    // Generic named fallbacks
-    '[aria-label="More"]',
-    '[aria-label*="more options" i]',
-    '[aria-label*="row actions" i]',
-    '[aria-label*="submission actions" i]',
-    'button[title="More"]',
   ].join(", "),
 
   // "Submit file" dropdown item — tii-grn-dropdown-menu-item-alpha web component.
@@ -388,11 +383,16 @@ export async function submitToTurnitin(opts: {
         // Search every frame for ⋮ buttons and track which frame owns them
         const frameDots: { frame: Frame; locator: Locator }[] = [];
         for (const frame of page.frames()) {
-          // Primary: tii-grn-button web components (confirmed from DevTools) + named fallbacks
+          // Primary: button.options-dropdown / "More actions" (confirmed from [diag])
           let locs = await frame.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
-          // Fallback A: any tii-grn-button anywhere on the frame (catches edge-case nesting)
+          // Fallback: any aria-haspopup button whose text is exactly "More actions"
+          // (avoids the "Instructor"/"English" nav decoys)
           if (locs.length === 0) {
-            locs = await frame.locator("tii-grn-button").all().catch(() => [] as Locator[]);
+            const haspopup = await frame.locator('button[aria-haspopup="true"]').all().catch(() => [] as Locator[]);
+            for (const b of haspopup) {
+              const t = (await b.innerText().catch(() => "")).trim().toLowerCase();
+              if (t.includes("more actions") || t === "more") locs.push(b);
+            }
           }
           for (const loc of locs) {
             frameDots.push({ frame, locator: loc });
@@ -1020,7 +1020,7 @@ async function gotoAssignmentPage(page: Page, url: string, onProgress: Logger): 
       (await locateInAnyFrame(page, SEL.moreDotsButton)) !== null ||
       (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null ||
       (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null ||
-      (await locateInAnyFrame(page, "tii-grn-button")) !== null ||
+      (await locateInAnyFrame(page, 'button.options-dropdown, button:has-text("More actions")')) !== null ||
       rowCount > 1;
     if (ready) {
       await onProgress(`assignment page ready (${rowCount} rows): ${page.url().slice(0, 90)}`);
