@@ -56,6 +56,27 @@ sed -i "s|__WORKER_DIR__|$WORKER_DIR|g" /etc/systemd/system/turnitin-worker.serv
 systemctl daemon-reload
 systemctl enable turnitin-worker
 
+# ── Optional: instructor worker (Similarity + AI pipeline) ───────────────────
+INSTRUCTOR_WORKER_DIR="$REPO_DIR/worker-instructor"
+if [[ -f "$INSTRUCTOR_WORKER_DIR/.env" ]]; then
+  echo "==> Installing instructor worker npm deps"
+  cd "$INSTRUCTOR_WORKER_DIR"
+  npm install
+  npm run build
+  npm prune --omit=dev
+
+  echo "==> Installing instructor systemd unit"
+  cp "$REPO_DIR/turnitin-instructor-worker.service" /etc/systemd/system/turnitin-instructor-worker.service
+  sed -i "s|__WORKER_DIR__|$INSTRUCTOR_WORKER_DIR|g" /etc/systemd/system/turnitin-instructor-worker.service
+  systemctl daemon-reload
+  systemctl enable turnitin-instructor-worker
+  echo "  Instructor worker enabled. Start with: systemctl start turnitin-instructor-worker"
+else
+  echo "  (Skipping instructor worker — no $INSTRUCTOR_WORKER_DIR/.env found)"
+  echo "  To enable: cp $INSTRUCTOR_WORKER_DIR/.env.example $INSTRUCTOR_WORKER_DIR/.env"
+  echo "             nano $INSTRUCTOR_WORKER_DIR/.env && bash install.sh"
+fi
+
 echo ""
 echo "Done. Next:"
 echo "  1. nano $WORKER_DIR/.env"
