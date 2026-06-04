@@ -358,27 +358,38 @@ export async function submitToTurnitin(opts: {
       return { similarityPdf, aiPdf, submissionId: submissionId ?? existingSubmissionId };
     }
 
-    // ── Step 1: find empty row → ⋮ → "Submit file" ────────────────────────────
-    await onProgress("step1: finding empty student row (⋮ → Submit file)");
+    // ── Step 1: click ⋮ on any row → "Resubmit file" ─────────────────────────
+    // The assignment page always has pre-existing student rows (no empty rows).
+    // Each ⋮ opens a menu with: Open report / Copy submission ID / Resubmit file
+    // / Grant extension / Download / Request deletion.
+    // We iterate the ⋮ buttons top-to-bottom, skipping any row that is denied
+    // or shows an unexpected menu. Safety: we ONLY proceed when the opened popup
+    // contains "Resubmit file" or "Submit file" — anything else is closed immediately.
+    await onProgress("step1: clicking ⋮ on a student row → Resubmit file");
     let submitFileOpened = false;
     {
       const step1Deadline = Date.now() + 90_000;
       while (Date.now() < step1Deadline && !submitFileOpened) {
-        const allDots = await page.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
+
+        // Collect all ⋮ buttons visible on the page
+        let allDots = await page.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
+
+        // Fallback: look for buttons inside the submission table rows directly
+        if (allDots.length === 0) {
+          allDots = await page.locator("table tr td:last-child button, table tr td button").all().catch(() => [] as Locator[]);
+        }
 
         if (allDots.length === 0) {
-          const ai = await findElementWithAI(page, "the three-dot (⋮) More button in the student submission table row");
+          // AI fallback — last resort
+          const ai = await findElementWithAI(page, 'the vertical three-dot ⋮ More button in the rightmost "More" column of the student submission table row');
           if (ai) {
+            await onProgress(`[warn] step1: no ⋮ buttons found via selectors, using AI fallback: ${ai.selector}`);
             await tryClickInAnyFrame(page, ai.selector, 5_000);
             await page.waitForTimeout(800);
-            // SAFETY: only proceed if the opened menu has Submit/Resubmit file
+            const hasResubmit = (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null;
             const hasSubmit   = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
-            const hasResubmit = (await locateInAnyFrame(page, SEL.resubmitMenuItem))   !== null;
-            if (hasSubmit) {
-              await smartClick(page, SEL.submitFileMenuItem, "the Submit file dropdown item", onProgress, 5_000);
-              submitFileOpened = true;
-            } else if (hasResubmit) {
-              submitFileOpened = true; // handled in main loop on next pass
+            if (hasResubmit || hasSubmit) {
+              allDots = []; // fall through to menu handling below after the while-loop restarts
             } else {
               await onProgress("[warn] step1: AI-found button opened unexpected menu — closing");
               await page.keyboard.press("Escape");
@@ -388,46 +399,56 @@ export async function submitToTurnitin(opts: {
           continue;
         }
 
+        await onProgress(`step1: found ${allDots.length} ⋮ button(s) — trying each until one opens Resubmit file`);
+
         for (const dotBtn of allDots) {
           if (submitFileOpened) break;
           try {
             const box = await dotBtn.boundingBox().catch(() => null);
             if (!box) continue;
+
+            // Scroll the button into view then click it
+            await dotBtn.scrollIntoViewIfNeeded().catch(() => {});
             await page.mouse.move(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
-            await page.waitForTimeout(200);
+            await page.waitForTimeout(150);
             await page.mouse.click(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
             await page.waitForTimeout(800);
 
-            const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem))   !== null;
-            const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))     !== null;
+            const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))   !== null;
+            const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem))  !== null;
 
-            // SAFETY: if the opened popup/menu does NOT contain "Submit file"
-            // or "Resubmit file" we clicked the wrong button (e.g. a delete or
-            // admin action). Close it immediately and move on.
-            if (!hasSubmitFile && !hasResubmit) {
+            // SAFETY: close immediately if not a submission menu
+            if (!hasResubmit && !hasSubmitFile) {
               await page.keyboard.press("Escape");
               await page.waitForTimeout(300);
-            } else if (hasSubmitFile) {
-              await onProgress("step1: empty row found — clicking 'Submit file'");
-              await smartClick(page, SEL.submitFileMenuItem, "the Submit file dropdown item", onProgress, 5_000);
+              continue;
+            }
+
+            if (hasSubmitFile) {
+              // Unexpected but handle it — fresh row with no prior submission
+              await onProgress("step1: found 'Submit file' — clicking it");
+              await smartClick(page, SEL.submitFileMenuItem, "the Submit file menu item", onProgress, 5_000);
               submitFileOpened = true;
             } else {
-              // hasResubmit
-              await onProgress("step1: used row — clicking 'Resubmit file'");
+              // Normal path: Resubmit file
+              await onProgress("step1: found 'Resubmit file' — clicking it");
               if (await isResubmitDenied(page, onProgress)) {
+                await onProgress("step1: row is denied — trying next row");
                 await page.keyboard.press("Escape");
                 await page.waitForTimeout(400);
-              } else {
-                await smartClick(page, SEL.resubmitMenuItem, "the Resubmit file dropdown item", onProgress, 5_000);
-                await page.waitForTimeout(600);
-                await onProgress("step1: confirming resubmit dialog");
-                await smartClick(page, SEL.confirmResubmission, "the Confirm button in the Resubmit file dialog", onProgress, 10_000);
-                await page.waitForTimeout(1_000);
-                if (await isResubmitDenied(page, onProgress)) throw new ResubmitDeniedError(assignment.assignment_label);
-                submitFileOpened = true;
+                continue;
               }
+              await smartClick(page, SEL.resubmitMenuItem, "the Resubmit file menu item", onProgress, 5_000);
+              await page.waitForTimeout(600);
+              await onProgress("step1: confirming resubmit dialog");
+              await smartClick(page, SEL.confirmResubmission, "the Confirm button in the resubmit dialog", onProgress, 10_000);
+              await page.waitForTimeout(1_000);
+              if (await isResubmitDenied(page, onProgress)) throw new ResubmitDeniedError(assignment.assignment_label);
+              submitFileOpened = true;
             }
-          } catch { /* try next row */ }
+          } catch (rowErr) {
+            await onProgress(`[warn] step1: row attempt failed (${rowErr instanceof Error ? rowErr.message : String(rowErr)}) — trying next row`);
+          }
         }
         if (!submitFileOpened) await page.waitForTimeout(1_000);
       }
