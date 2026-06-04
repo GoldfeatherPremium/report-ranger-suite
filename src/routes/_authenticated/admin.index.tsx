@@ -110,8 +110,8 @@ function WorkerPanel({ title, subtitle, workers }: { title: string; subtitle: st
         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-      <div className="mt-4 overflow-hidden rounded-lg border">
-        <table className="w-full text-sm">
+      <div className="mt-4 overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[560px] text-sm">
           <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-4 py-2">Worker ID</th>

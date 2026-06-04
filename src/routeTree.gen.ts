@@ -21,8 +21,13 @@ import { Route as AuthenticatedAdminTurnitinRouteImport } from './routes/_authen
 import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated/admin.settings'
 import { Route as AuthenticatedAdminPortalsRouteImport } from './routes/_authenticated/admin.portals'
 import { Route as AuthenticatedAdminJobsRouteImport } from './routes/_authenticated/admin.jobs'
+import { Route as AuthenticatedAdminApiClientsRouteImport } from './routes/_authenticated/admin.api-clients'
 import { Route as AuthenticatedAdminTurnitinIndexRouteImport } from './routes/_authenticated/admin.turnitin.index'
+import { Route as ApiPublicV1JobsRouteImport } from './routes/api/public/v1/jobs'
+import { Route as ApiPublicCronDispatchCallbacksRouteImport } from './routes/api/public/cron/dispatch-callbacks'
 import { Route as AuthenticatedAdminTurnitinAccountIdRouteImport } from './routes/_authenticated/admin.turnitin.$accountId'
+import { Route as ApiPublicV1JobsUploadUrlRouteImport } from './routes/api/public/v1/jobs.upload-url'
+import { Route as ApiPublicV1JobsJobIdRouteImport } from './routes/api/public/v1/jobs.$jobId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -86,11 +91,28 @@ const AuthenticatedAdminJobsRoute = AuthenticatedAdminJobsRouteImport.update({
   path: '/jobs',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedAdminApiClientsRoute =
+  AuthenticatedAdminApiClientsRouteImport.update({
+    id: '/api-clients',
+    path: '/api-clients',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminTurnitinIndexRoute =
   AuthenticatedAdminTurnitinIndexRouteImport.update({
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedAdminTurnitinRoute,
+  } as any)
+const ApiPublicV1JobsRoute = ApiPublicV1JobsRouteImport.update({
+  id: '/api/public/v1/jobs',
+  path: '/api/public/v1/jobs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicCronDispatchCallbacksRoute =
+  ApiPublicCronDispatchCallbacksRouteImport.update({
+    id: '/api/public/cron/dispatch-callbacks',
+    path: '/api/public/cron/dispatch-callbacks',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const AuthenticatedAdminTurnitinAccountIdRoute =
   AuthenticatedAdminTurnitinAccountIdRouteImport.update({
@@ -98,6 +120,17 @@ const AuthenticatedAdminTurnitinAccountIdRoute =
     path: '/$accountId',
     getParentRoute: () => AuthenticatedAdminTurnitinRoute,
   } as any)
+const ApiPublicV1JobsUploadUrlRoute =
+  ApiPublicV1JobsUploadUrlRouteImport.update({
+    id: '/upload-url',
+    path: '/upload-url',
+    getParentRoute: () => ApiPublicV1JobsRoute,
+  } as any)
+const ApiPublicV1JobsJobIdRoute = ApiPublicV1JobsJobIdRouteImport.update({
+  id: '/$jobId',
+  path: '/$jobId',
+  getParentRoute: () => ApiPublicV1JobsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -105,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/admin/api-clients': typeof AuthenticatedAdminApiClientsRoute
   '/admin/jobs': typeof AuthenticatedAdminJobsRoute
   '/admin/portals': typeof AuthenticatedAdminPortalsRoute
   '/admin/settings': typeof AuthenticatedAdminSettingsRoute
@@ -112,20 +146,29 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/admin/turnitin/$accountId': typeof AuthenticatedAdminTurnitinAccountIdRoute
+  '/api/public/cron/dispatch-callbacks': typeof ApiPublicCronDispatchCallbacksRoute
+  '/api/public/v1/jobs': typeof ApiPublicV1JobsRouteWithChildren
   '/admin/turnitin/': typeof AuthenticatedAdminTurnitinIndexRoute
+  '/api/public/v1/jobs/$jobId': typeof ApiPublicV1JobsJobIdRoute
+  '/api/public/v1/jobs/upload-url': typeof ApiPublicV1JobsUploadUrlRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/admin/api-clients': typeof AuthenticatedAdminApiClientsRoute
   '/admin/jobs': typeof AuthenticatedAdminJobsRoute
   '/admin/portals': typeof AuthenticatedAdminPortalsRoute
   '/admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/admin/turnitin/$accountId': typeof AuthenticatedAdminTurnitinAccountIdRoute
+  '/api/public/cron/dispatch-callbacks': typeof ApiPublicCronDispatchCallbacksRoute
+  '/api/public/v1/jobs': typeof ApiPublicV1JobsRouteWithChildren
   '/admin/turnitin': typeof AuthenticatedAdminTurnitinIndexRoute
+  '/api/public/v1/jobs/$jobId': typeof ApiPublicV1JobsJobIdRoute
+  '/api/public/v1/jobs/upload-url': typeof ApiPublicV1JobsUploadUrlRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -135,6 +178,7 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
+  '/_authenticated/admin/api-clients': typeof AuthenticatedAdminApiClientsRoute
   '/_authenticated/admin/jobs': typeof AuthenticatedAdminJobsRoute
   '/_authenticated/admin/portals': typeof AuthenticatedAdminPortalsRoute
   '/_authenticated/admin/settings': typeof AuthenticatedAdminSettingsRoute
@@ -142,7 +186,11 @@ export interface FileRoutesById {
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/admin/turnitin/$accountId': typeof AuthenticatedAdminTurnitinAccountIdRoute
+  '/api/public/cron/dispatch-callbacks': typeof ApiPublicCronDispatchCallbacksRoute
+  '/api/public/v1/jobs': typeof ApiPublicV1JobsRouteWithChildren
   '/_authenticated/admin/turnitin/': typeof AuthenticatedAdminTurnitinIndexRoute
+  '/api/public/v1/jobs/$jobId': typeof ApiPublicV1JobsJobIdRoute
+  '/api/public/v1/jobs/upload-url': typeof ApiPublicV1JobsUploadUrlRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -152,6 +200,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/history'
+    | '/admin/api-clients'
     | '/admin/jobs'
     | '/admin/portals'
     | '/admin/settings'
@@ -159,20 +208,29 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/'
     | '/admin/turnitin/$accountId'
+    | '/api/public/cron/dispatch-callbacks'
+    | '/api/public/v1/jobs'
     | '/admin/turnitin/'
+    | '/api/public/v1/jobs/$jobId'
+    | '/api/public/v1/jobs/upload-url'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
     | '/dashboard'
     | '/history'
+    | '/admin/api-clients'
     | '/admin/jobs'
     | '/admin/portals'
     | '/admin/settings'
     | '/admin/users'
     | '/admin'
     | '/admin/turnitin/$accountId'
+    | '/api/public/cron/dispatch-callbacks'
+    | '/api/public/v1/jobs'
     | '/admin/turnitin'
+    | '/api/public/v1/jobs/$jobId'
+    | '/api/public/v1/jobs/upload-url'
   id:
     | '__root__'
     | '/'
@@ -181,6 +239,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
     | '/_authenticated/history'
+    | '/_authenticated/admin/api-clients'
     | '/_authenticated/admin/jobs'
     | '/_authenticated/admin/portals'
     | '/_authenticated/admin/settings'
@@ -188,13 +247,19 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
     | '/_authenticated/admin/turnitin/$accountId'
+    | '/api/public/cron/dispatch-callbacks'
+    | '/api/public/v1/jobs'
     | '/_authenticated/admin/turnitin/'
+    | '/api/public/v1/jobs/$jobId'
+    | '/api/public/v1/jobs/upload-url'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ApiPublicCronDispatchCallbacksRoute: typeof ApiPublicCronDispatchCallbacksRoute
+  ApiPublicV1JobsRoute: typeof ApiPublicV1JobsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -283,6 +348,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminJobsRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/admin/api-clients': {
+      id: '/_authenticated/admin/api-clients'
+      path: '/api-clients'
+      fullPath: '/admin/api-clients'
+      preLoaderRoute: typeof AuthenticatedAdminApiClientsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/turnitin/': {
       id: '/_authenticated/admin/turnitin/'
       path: '/'
@@ -290,12 +362,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminTurnitinIndexRouteImport
       parentRoute: typeof AuthenticatedAdminTurnitinRoute
     }
+    '/api/public/v1/jobs': {
+      id: '/api/public/v1/jobs'
+      path: '/api/public/v1/jobs'
+      fullPath: '/api/public/v1/jobs'
+      preLoaderRoute: typeof ApiPublicV1JobsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/cron/dispatch-callbacks': {
+      id: '/api/public/cron/dispatch-callbacks'
+      path: '/api/public/cron/dispatch-callbacks'
+      fullPath: '/api/public/cron/dispatch-callbacks'
+      preLoaderRoute: typeof ApiPublicCronDispatchCallbacksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/admin/turnitin/$accountId': {
       id: '/_authenticated/admin/turnitin/$accountId'
       path: '/$accountId'
       fullPath: '/admin/turnitin/$accountId'
       preLoaderRoute: typeof AuthenticatedAdminTurnitinAccountIdRouteImport
       parentRoute: typeof AuthenticatedAdminTurnitinRoute
+    }
+    '/api/public/v1/jobs/upload-url': {
+      id: '/api/public/v1/jobs/upload-url'
+      path: '/upload-url'
+      fullPath: '/api/public/v1/jobs/upload-url'
+      preLoaderRoute: typeof ApiPublicV1JobsUploadUrlRouteImport
+      parentRoute: typeof ApiPublicV1JobsRoute
+    }
+    '/api/public/v1/jobs/$jobId': {
+      id: '/api/public/v1/jobs/$jobId'
+      path: '/$jobId'
+      fullPath: '/api/public/v1/jobs/$jobId'
+      preLoaderRoute: typeof ApiPublicV1JobsJobIdRouteImport
+      parentRoute: typeof ApiPublicV1JobsRoute
     }
   }
 }
@@ -318,6 +418,7 @@ const AuthenticatedAdminTurnitinRouteWithChildren =
   )
 
 interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminApiClientsRoute: typeof AuthenticatedAdminApiClientsRoute
   AuthenticatedAdminJobsRoute: typeof AuthenticatedAdminJobsRoute
   AuthenticatedAdminPortalsRoute: typeof AuthenticatedAdminPortalsRoute
   AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
@@ -327,6 +428,7 @@ interface AuthenticatedAdminRouteChildren {
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminApiClientsRoute: AuthenticatedAdminApiClientsRoute,
   AuthenticatedAdminJobsRoute: AuthenticatedAdminJobsRoute,
   AuthenticatedAdminPortalsRoute: AuthenticatedAdminPortalsRoute,
   AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
@@ -354,11 +456,37 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
+interface ApiPublicV1JobsRouteChildren {
+  ApiPublicV1JobsJobIdRoute: typeof ApiPublicV1JobsJobIdRoute
+  ApiPublicV1JobsUploadUrlRoute: typeof ApiPublicV1JobsUploadUrlRoute
+}
+
+const ApiPublicV1JobsRouteChildren: ApiPublicV1JobsRouteChildren = {
+  ApiPublicV1JobsJobIdRoute: ApiPublicV1JobsJobIdRoute,
+  ApiPublicV1JobsUploadUrlRoute: ApiPublicV1JobsUploadUrlRoute,
+}
+
+const ApiPublicV1JobsRouteWithChildren = ApiPublicV1JobsRoute._addFileChildren(
+  ApiPublicV1JobsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
+  ApiPublicCronDispatchCallbacksRoute: ApiPublicCronDispatchCallbacksRoute,
+  ApiPublicV1JobsRoute: ApiPublicV1JobsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

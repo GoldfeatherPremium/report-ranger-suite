@@ -36,8 +36,8 @@ function AdminUsers() {
         <h2 className="text-2xl font-semibold">Users</h2>
         <p className="mt-1 text-sm text-muted-foreground">{data.length} total</p>
       </div>
-      <div className="overflow-hidden rounded-xl border bg-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3">User</th>

@@ -37,7 +37,7 @@ function AdminJobs() {
           <p className="mt-1 text-sm text-muted-foreground">{data.length} shown</p>
         </div>
         <Select value={status} onValueChange={(v) => setStatus(v as JobStatus | "all")}>
-          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
             {STATUSES.map((s) => (
               <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>

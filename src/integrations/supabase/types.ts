@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_clients: {
+        Row: {
+          created_at: string
+          daily_quota: number
+          id: string
+          is_active: boolean
+          key_hash: string
+          key_prefix: string
+          name: string
+          rate_limit_per_min: number
+          updated_at: string
+          webhook_secret: string
+          webhook_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          daily_quota?: number
+          id?: string
+          is_active?: boolean
+          key_hash: string
+          key_prefix: string
+          name: string
+          rate_limit_per_min?: number
+          updated_at?: string
+          webhook_secret: string
+          webhook_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          daily_quota?: number
+          id?: string
+          is_active?: boolean
+          key_hash?: string
+          key_prefix?: string
+          name?: string
+          rate_limit_per_min?: number
+          updated_at?: string
+          webhook_secret?: string
+          webhook_url?: string | null
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
@@ -52,20 +94,85 @@ export type Database = {
           },
         ]
       }
+      job_callbacks: {
+        Row: {
+          api_client_id: string | null
+          attempts: number
+          created_at: string
+          delivered_at: string | null
+          event: string
+          id: string
+          job_id: string
+          last_error: string | null
+          last_status: number | null
+          next_attempt_at: string
+          payload: Json
+          url: string
+        }
+        Insert: {
+          api_client_id?: string | null
+          attempts?: number
+          created_at?: string
+          delivered_at?: string | null
+          event: string
+          id?: string
+          job_id: string
+          last_error?: string | null
+          last_status?: number | null
+          next_attempt_at?: string
+          payload: Json
+          url: string
+        }
+        Update: {
+          api_client_id?: string | null
+          attempts?: number
+          created_at?: string
+          delivered_at?: string | null
+          event?: string
+          id?: string
+          job_id?: string
+          last_error?: string | null
+          last_status?: number | null
+          next_attempt_at?: string
+          payload?: Json
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_callbacks_api_client_id_fkey"
+            columns: ["api_client_id"]
+            isOneToOne: false
+            referencedRelation: "api_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_callbacks_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jobs: {
         Row: {
+          api_client_id: string | null
           attempts: number
           bull_job_id: string | null
+          callback_url: string | null
           created_at: string
           error: string | null
+          external_ref: string | null
           finished_at: string | null
           id: string
           last_polled_at: string | null
           max_attempts: number
+          metadata: Json
           mime_type: string | null
           original_name: string
           portal_id: string | null
           queued_at: string | null
+          similarity_percent: number | null
           size_bytes: number | null
           slot_id: string | null
           source_path: string
@@ -73,22 +180,27 @@ export type Database = {
           status: Database["public"]["Enums"]["job_state"]
           turnitin_submission_id: string | null
           updated_at: string
-          user_id: string
+          user_id: string | null
           worker_id: string | null
         }
         Insert: {
+          api_client_id?: string | null
           attempts?: number
           bull_job_id?: string | null
+          callback_url?: string | null
           created_at?: string
           error?: string | null
+          external_ref?: string | null
           finished_at?: string | null
           id?: string
           last_polled_at?: string | null
           max_attempts?: number
+          metadata?: Json
           mime_type?: string | null
           original_name: string
           portal_id?: string | null
           queued_at?: string | null
+          similarity_percent?: number | null
           size_bytes?: number | null
           slot_id?: string | null
           source_path: string
@@ -96,22 +208,27 @@ export type Database = {
           status?: Database["public"]["Enums"]["job_state"]
           turnitin_submission_id?: string | null
           updated_at?: string
-          user_id: string
+          user_id?: string | null
           worker_id?: string | null
         }
         Update: {
+          api_client_id?: string | null
           attempts?: number
           bull_job_id?: string | null
+          callback_url?: string | null
           created_at?: string
           error?: string | null
+          external_ref?: string | null
           finished_at?: string | null
           id?: string
           last_polled_at?: string | null
           max_attempts?: number
+          metadata?: Json
           mime_type?: string | null
           original_name?: string
           portal_id?: string | null
           queued_at?: string | null
+          similarity_percent?: number | null
           size_bytes?: number | null
           slot_id?: string | null
           source_path?: string
@@ -119,10 +236,17 @@ export type Database = {
           status?: Database["public"]["Enums"]["job_state"]
           turnitin_submission_id?: string | null
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
           worker_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "jobs_api_client_id_fkey"
+            columns: ["api_client_id"]
+            isOneToOne: false
+            referencedRelation: "api_clients"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "jobs_portal_id_fkey"
             columns: ["portal_id"]
@@ -440,18 +564,23 @@ export type Database = {
       claim_next_job: {
         Args: { p_worker_id: string }
         Returns: {
+          api_client_id: string | null
           attempts: number
           bull_job_id: string | null
+          callback_url: string | null
           created_at: string
           error: string | null
+          external_ref: string | null
           finished_at: string | null
           id: string
           last_polled_at: string | null
           max_attempts: number
+          metadata: Json
           mime_type: string | null
           original_name: string
           portal_id: string | null
           queued_at: string | null
+          similarity_percent: number | null
           size_bytes: number | null
           slot_id: string | null
           source_path: string
@@ -459,7 +588,7 @@ export type Database = {
           status: Database["public"]["Enums"]["job_state"]
           turnitin_submission_id: string | null
           updated_at: string
-          user_id: string
+          user_id: string | null
           worker_id: string | null
         }
         SetofOptions: {
@@ -469,15 +598,25 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      cancel_job: { Args: { p_job_id: string }; Returns: undefined }
+      create_api_client: {
+        Args: { p_name: string; p_webhook_url: string }
+        Returns: Json
+      }
       decrypt_account_password: { Args: { account: string }; Returns: string }
       encrypt_account_password: { Args: { plain: string }; Returns: string }
+      enqueue_job_callback: {
+        Args: { p_event: string; p_job_id: string }
+        Returns: undefined
+      }
       is_admin: { Args: never; Returns: boolean }
+      reassign_job_slot: {
+        Args: { p_exclude_slot_ids: string[]; p_job_id: string }
+        Returns: string
+      }
       requeue_stuck_jobs: {
         Args: { p_max_age_minutes?: number }
         Returns: number
       }
-      retry_job: { Args: { p_job_id: string }; Returns: undefined }
     }
     Enums: {
       job_state:

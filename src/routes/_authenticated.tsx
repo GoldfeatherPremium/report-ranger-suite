@@ -35,7 +35,7 @@ function AuthLayout() {
               {pathname.replace("/", "").replace("/", " · ") || "dashboard"}
             </h1>
           </header>
-          <main className="flex-1 p-6 lg:p-8"><Outlet /></main>
+          <main className="flex-1 p-4 sm:p-6 lg:p-8"><Outlet /></main>
         </div>
       </div>
     </SidebarProvider>

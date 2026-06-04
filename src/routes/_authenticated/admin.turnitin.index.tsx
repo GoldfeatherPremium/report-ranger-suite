@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, ChevronRight, Power } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Plus, ChevronRight, Power, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/turnitin/")({ component: Page });
 
@@ -32,7 +33,7 @@ function Page() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Turnitin Accounts</h2>
           <p className="text-sm text-muted-foreground">Manage student accounts the VPS worker uses to submit documents.</p>
@@ -45,8 +46,8 @@ function Page() {
         </Dialog>
       </div>
 
-      <div className="rounded-xl border bg-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <table className="w-full min-w-[560px] text-sm">
           <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-4 py-3">Label</th>
@@ -69,11 +70,14 @@ function Page() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Button asChild variant="ghost" size="sm">
-                    <Link to="/admin/turnitin/$accountId" params={{ accountId: a.id }}>
-                      Slots <ChevronRight className="ml-1 h-4 w-4" />
-                    </Link>
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link to="/admin/turnitin/$accountId" params={{ accountId: a.id }}>
+                        Slots <ChevronRight className="ml-1 h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <DeleteAccountButton account={a} onDeleted={() => refetch()} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -121,5 +125,44 @@ function AddAccountDialog({ onDone }: { onDone: () => void }) {
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+function DeleteAccountButton({ account, onDeleted }: { account: Account; onDeleted: () => void }) {
+  const [deleting, setDeleting] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    const { error } = await supabase.from("turnitin_accounts" as never).delete().eq("id", account.id);
+    setDeleting(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Account deleted");
+    setOpen(false);
+    onDeleted();
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete “{account.label}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently removes the account ({account.email}) and all of its slots. Jobs that already submitted to Turnitin under this account will lose their slot reference. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDelete(); }} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            {deleting ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

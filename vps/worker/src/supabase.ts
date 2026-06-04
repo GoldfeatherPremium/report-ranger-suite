@@ -152,16 +152,19 @@ export async function markJobSubmitted(jobId: string, submissionId: string) {
   }).eq("id", jobId);
 }
 
-export async function markJobDone(jobId: string, submissionId: string | null) {
+export async function markJobDone(jobId: string, submissionId: string | null, similarityPercent?: number | null) {
   await supabase.from("jobs").update({
     status: "completed",
     finished_at: new Date().toISOString(),
     turnitin_submission_id: submissionId,
     last_polled_at: new Date().toISOString(),
+    ...(similarityPercent != null ? { similarity_percent: similarityPercent } : {}),
   }).eq("id", jobId);
   await supabase.from("turnitin_slot_usage")
     .update({ freed_at: new Date().toISOString(), turnitin_submission_id: submissionId })
     .eq("job_id", jobId).is("freed_at", null);
+  // Notify any partner site (no-op if the job has no callback_url).
+  await supabase.rpc("enqueue_job_callback", { p_job_id: jobId, p_event: "job.completed" });
 }
 
 export async function markJobFailed(jobId: string, attempts: number, max: number, error: string, submissionId?: string | null) {
@@ -177,6 +180,7 @@ export async function markJobFailed(jobId: string, attempts: number, max: number
     await supabase.from("turnitin_slot_usage")
       .update({ freed_at: new Date().toISOString() })
       .eq("job_id", jobId).is("freed_at", null);
+    await supabase.rpc("enqueue_job_callback", { p_job_id: jobId, p_event: "job.failed" });
   } else if (alreadySubmitted) {
     // Document was already submitted to Turnitin — requeue but KEEP the slot
     // assignment so the retry polls the same assignment dashboard instead of

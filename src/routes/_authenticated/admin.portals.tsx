@@ -79,7 +79,7 @@ function PortalsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Portal configurations</h2>
           <p className="mt-1 text-sm text-muted-foreground">Define the external portals the worker drives.</p>
@@ -131,8 +131,8 @@ function PortalsPage() {
       {isLoading ? (
         <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border bg-card">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">Name</th>
