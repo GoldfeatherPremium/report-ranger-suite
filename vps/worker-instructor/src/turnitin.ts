@@ -23,45 +23,23 @@ const SEL = {
   passwordInput: 'input[name="password"], input[name="user_password"], input#password, input#user_password, input[type="password"]',
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
 
-  // ⋮ "More" button on each student row — broad net covering PrimeVue,
-  // Turnitin's own aria labels, and any dropdown trigger pattern
+  // ⋮ "More" button on each student row.
+  // IMPORTANT: keep these selectors SPECIFIC. Overly broad selectors (e.g.
+  // "all buttons in a tr") will click delete/admin buttons on the page.
+  // The step1 loop validates that the opened popup contains "Submit file" or
+  // "Resubmit file" before proceeding — any other popup is closed immediately.
   moreDotsButton: [
-    // Explicit aria-label variants
     '[aria-label="More"]',
     '[aria-label="more"]',
     '[aria-label*="more options" i]',
     '[aria-label*="more actions" i]',
     '[aria-label*="row actions" i]',
     '[aria-label*="submission actions" i]',
-    '[aria-label*="open menu" i]',
-    // title attribute
     'button[title="More"]',
-    'button[title*="more" i]',
-    // PrimeVue menu/splitbutton trigger patterns
+    'button[title="more"]',
     'button.p-menu-toggle',
     'button.p-splitbutton-menubutton',
-    'button.p-tieredmenu-toggle',
     '.p-menu-toggle',
-    // Generic dropdown triggers (aria-haspopup without being a select)
-    'button[aria-haspopup="true"]',
-    'button[aria-haspopup="menu"]',
-    'button[aria-controls][aria-haspopup]',
-    // data-testid / data-pc patterns
-    '[data-testid*="more-actions" i]',
-    '[data-testid*="more-options" i]',
-    '[data-testid*="kebab" i]',
-    '[data-testid*="row-menu" i]',
-    '[data-pc-section="togglerbutton"]',
-    '[data-pc-name*="menu" i] button',
-    // Class-based patterns used in Turnitin's instructor UI
-    'button.more-actions',
-    'button.actions-menu',
-    'button.kebab-menu',
-    '.more-options-button',
-    // SVG icon buttons (three-dots / ellipsis icon inside a button in a table row)
-    'td button svg[data-icon*="ellipsis"]',
-    'td button svg[class*="ellipsis"]',
-    'tr button:not([type="submit"])',
   ].join(", "),
 
   // "Submit file" dropdown item (empty rows)
@@ -393,10 +371,16 @@ export async function submitToTurnitin(opts: {
           if (ai) {
             await tryClickInAnyFrame(page, ai.selector, 5_000);
             await page.waitForTimeout(800);
-            if ((await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null) {
+            // SAFETY: only proceed if the opened menu has Submit/Resubmit file
+            const hasSubmit   = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
+            const hasResubmit = (await locateInAnyFrame(page, SEL.resubmitMenuItem))   !== null;
+            if (hasSubmit) {
               await smartClick(page, SEL.submitFileMenuItem, "the Submit file dropdown item", onProgress, 5_000);
               submitFileOpened = true;
+            } else if (hasResubmit) {
+              submitFileOpened = true; // handled in main loop on next pass
             } else {
+              await onProgress("[warn] step1: AI-found button opened unexpected menu — closing");
               await page.keyboard.press("Escape");
             }
           }
@@ -417,11 +401,18 @@ export async function submitToTurnitin(opts: {
             const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem))   !== null;
             const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))     !== null;
 
-            if (hasSubmitFile) {
+            // SAFETY: if the opened popup/menu does NOT contain "Submit file"
+            // or "Resubmit file" we clicked the wrong button (e.g. a delete or
+            // admin action). Close it immediately and move on.
+            if (!hasSubmitFile && !hasResubmit) {
+              await page.keyboard.press("Escape");
+              await page.waitForTimeout(300);
+            } else if (hasSubmitFile) {
               await onProgress("step1: empty row found — clicking 'Submit file'");
               await smartClick(page, SEL.submitFileMenuItem, "the Submit file dropdown item", onProgress, 5_000);
               submitFileOpened = true;
-            } else if (hasResubmit) {
+            } else {
+              // hasResubmit
               await onProgress("step1: used row — clicking 'Resubmit file'");
               if (await isResubmitDenied(page, onProgress)) {
                 await page.keyboard.press("Escape");
@@ -435,9 +426,6 @@ export async function submitToTurnitin(opts: {
                 if (await isResubmitDenied(page, onProgress)) throw new ResubmitDeniedError(assignment.assignment_label);
                 submitFileOpened = true;
               }
-            } else {
-              await page.keyboard.press("Escape");
-              await page.waitForTimeout(300);
             }
           } catch { /* try next row */ }
         }
