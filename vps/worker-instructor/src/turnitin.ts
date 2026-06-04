@@ -1093,14 +1093,48 @@ async function clickDotInFrame(frame: Frame, idx: number): Promise<boolean> {
   }, idx).catch(() => false);
 }
 
-// Find the frame currently showing a dropdown menu item whose visible text
-// contains any of `needles` (case-insensitive). Reads slotted web-component
-// text too (tii-grn-dropdown-menu-item-alpha keeps its label in light DOM).
+// Find the frame currently showing a dropdown menu item matching any needle.
+// Strategy (in order of reliability):
+//   1. tii-grn-dropdown-menu-item-alpha title/label attrs  (LIGHT DOM — always readable)
+//   2. tii-grn-dropdown-menu-item-alpha shadowRoot text    (works for open shadow roots)
+//   3. Presence of ANY tii-grn-dropdown-menu-item-alpha    (these elements are unique
+//      to the submission row action menu — if they exist, the right menu is open)
+//   4. Standard innerText/textContent on other elements
 async function menuItemFrame(page: Page, needles: string[]): Promise<Frame | null> {
   for (const f of page.frames()) {
     const found = await f.evaluate((ns) => {
+      // 1 & 2 & 3: tii-grn-dropdown-menu-item-alpha (Turnitin web component)
+      const tiiItems = Array.from(
+        document.querySelectorAll("tii-grn-dropdown-menu-item-alpha"),
+      ) as HTMLElement[];
+      if (tiiItems.length > 0) {
+        for (const el of tiiItems) {
+          // Light-DOM attributes (most reliable — title is set to the label text)
+          const attrs = [
+            el.getAttribute("title")      || "",
+            el.getAttribute("label")      || "",
+            el.getAttribute("aria-label") || "",
+            el.getAttribute("data-label") || "",
+            el.innerText                  || "",
+            el.textContent                || "",
+          ].join(" ").toLowerCase();
+          // Shadow-root text (works when shadow root is open)
+          let shadowText = "";
+          try {
+            shadowText = (el.shadowRoot?.textContent || el.shadowRoot?.querySelector(".button-label, .label, [part=label]")?.textContent || "").toLowerCase();
+          } catch { /* closed shadow root — ignore */ }
+          const full = attrs + " " + shadowText;
+          if (ns.some((n) => full.includes(n))) return true;
+        }
+        // Fallback 3: any tii-grn items present → this IS the submission menu
+        // (these elements only appear in row action dropdowns)
+        if (ns.some((n) => ["resubmit", "submit", "submit file", "confirm"].includes(n))) {
+          return true;
+        }
+      }
+      // 4. Standard text search on other element types
       const els = Array.from(document.querySelectorAll(
-        "tii-grn-dropdown-menu-item-alpha, [role=menuitem], li, a, button, span, div[slot=title]",
+        "[role=menuitem], li, a, button, span, div[slot=title]",
       )) as HTMLElement[];
       return els.some((el) => {
         const t = (el.innerText || el.textContent || "").trim().toLowerCase();
@@ -1112,12 +1146,48 @@ async function menuItemFrame(page: Page, needles: string[]): Promise<Frame | nul
   return null;
 }
 
-// Click the first dropdown menu item whose visible text contains any of `needles`.
+// Click the first dropdown menu item matching any needle.
+// Same attribute-priority strategy as menuItemFrame.
 async function clickMenuItem(page: Page, needles: string[]): Promise<boolean> {
   for (const f of page.frames()) {
     const clicked = await f.evaluate((ns) => {
+      // Try tii-grn-dropdown-menu-item-alpha first (title attr is most reliable)
+      const tiiItems = Array.from(
+        document.querySelectorAll("tii-grn-dropdown-menu-item-alpha"),
+      ) as HTMLElement[];
+      for (const el of tiiItems) {
+        const attrs = [
+          el.getAttribute("title")      || "",
+          el.getAttribute("label")      || "",
+          el.getAttribute("aria-label") || "",
+          el.getAttribute("data-label") || "",
+          el.innerText                  || "",
+          el.textContent                || "",
+        ].join(" ").toLowerCase();
+        let shadowText = "";
+        try { shadowText = (el.shadowRoot?.textContent || "").toLowerCase(); } catch { /* */ }
+        if (ns.some((n) => (attrs + " " + shadowText).includes(n))) {
+          el.scrollIntoView({ block: "center" });
+          el.click();
+          return true;
+        }
+      }
+      // Position-based fallback for tii-grn items (known menu order:
+      // 0=Open report, 1=Copy submission, 2=Resubmit, 3=Grant extension, 4=Download)
+      if (tiiItems.length > 0 && ns.some((n) => n.includes("resubmit"))) {
+        const target = tiiItems[2] || tiiItems[tiiItems.length - 1];
+        target.scrollIntoView({ block: "center" });
+        target.click();
+        return true;
+      }
+      if (tiiItems.length > 0 && ns.some((n) => n.includes("submit"))) {
+        // "Submit file" — pick first item that isn't obviously wrong
+        (tiiItems[0] || tiiItems[0]).click();
+        return true;
+      }
+      // Standard fallback
       const els = Array.from(document.querySelectorAll(
-        "tii-grn-dropdown-menu-item-alpha, [role=menuitem], li, a, button, div[slot=title]",
+        "[role=menuitem], li, a, button, div[slot=title]",
       )) as HTMLElement[];
       for (const el of els) {
         const t = (el.innerText || el.textContent || "").trim().toLowerCase();
