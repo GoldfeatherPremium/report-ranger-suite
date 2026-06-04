@@ -434,17 +434,46 @@ export async function submitToTurnitin(opts: {
             try {
               // Re-tag in case the DOM re-rendered between rows
               await tagDotsInFrame(frame);
-              const clicked = await clickDotInFrame(frame, idx);
-              if (!clicked) continue;
-              await onProgress(`step1: clicked ⋮ on row ${idx + 1}`);
+
+              // Get the bounding box of the tagged button and click via REAL
+              // Playwright mouse event (not synthetic el.click()) so Turnitin's
+              // event handlers fire correctly.
+              const loc = frame.locator(`[data-tii-dot="${idx}"]`).first();
+              const box = await loc.boundingBox().catch(() => null);
+              if (!box) {
+                await onProgress(`[warn] step1: row ${idx + 1} — no bounding box (off-screen?), scrolling`);
+                await loc.scrollIntoViewIfNeeded().catch(() => {});
+                await scrollAllFrames(page);
+                await page.waitForTimeout(500);
+              }
+              const box2 = box ?? await loc.boundingBox().catch(() => null);
+              if (!box2) { await onProgress(`[warn] step1: row ${idx + 1} still no box — skipping`); continue; }
+
+              const cx = Math.round(box2.x + box2.width  / 2);
+              const cy = Math.round(box2.y + box2.height / 2);
+              await onProgress(`step1: clicking ⋮ row ${idx + 1} at viewport (${cx}, ${cy}) size ${Math.round(box2.width)}×${Math.round(box2.height)}`);
+
+              await page.mouse.move(cx, cy);
+              await page.waitForTimeout(120);
+              await page.mouse.click(cx, cy);
+
+              // Screenshot immediately after click so we can see what opened
+              const screenshotPath = `/tmp/tii-step1-row${idx + 1}-${Date.now()}.png`;
+              await page.screenshot({ path: screenshotPath, fullPage: false }).catch(() => {});
+              await onProgress(`step1: screenshot saved → ${screenshotPath}`);
+
+              // Dump what's NEW in the DOM after the click (popup content)
+              await page.waitForTimeout(600);
+              const popupDump = await snapPopupContent(page);
+              await onProgress(`step1: post-click DOM snapshot: ${popupDump || "(nothing new)"}`);
 
               // Wait up to 3s for the popup menu to render
               let hasResubmit = false;
               let hasSubmitFile = false;
               for (let w = 0; w < 6; w++) {
                 await page.waitForTimeout(500);
-                hasResubmit   = (await menuItemFrame(page, ["resubmit"]))     !== null;
-                hasSubmitFile = (await menuItemFrame(page, ["submit file"]))  !== null;
+                hasResubmit   = (await menuItemFrame(page, ["resubmit"]))    !== null;
+                hasSubmitFile = (await menuItemFrame(page, ["submit file"])) !== null;
                 if (hasResubmit || hasSubmitFile) break;
               }
 
@@ -1203,6 +1232,38 @@ async function clickMenuItem(page: Page, needles: string[]): Promise<boolean> {
     if (clicked) return true;
   }
   return false;
+}
+
+// Snapshot what popup/menu content is currently visible across all frames.
+// Returns a compact string listing tii-grn-dropdown-menu-item-alpha titles/text,
+// [role=menuitem] text, and any visible dialog headings — for post-click logging.
+async function snapPopupContent(page: Page): Promise<string> {
+  const parts: string[] = [];
+  for (const f of page.frames()) {
+    const items = await f.evaluate(() => {
+      const results: string[] = [];
+      // Turnitin web-component menu items
+      document.querySelectorAll<HTMLElement>("tii-grn-dropdown-menu-item-alpha").forEach((el) => {
+        const label = [
+          el.getAttribute("title"),
+          el.getAttribute("label"),
+          el.getAttribute("aria-label"),
+          el.innerText,
+          el.textContent,
+          (() => { try { return el.shadowRoot?.textContent; } catch { return ""; } })(),
+        ].filter(Boolean).join("|").replace(/\s+/g, " ").trim().slice(0, 60);
+        if (label) results.push(`tii-item:"${label}"`);
+      });
+      // Standard menu items / dialog buttons
+      document.querySelectorAll<HTMLElement>('[role=menuitem], [role=dialog] button, [role=alertdialog] button').forEach((el) => {
+        const t = (el.innerText || el.textContent || "").trim().slice(0, 40);
+        if (t) results.push(`menu:"${t}"`);
+      });
+      return results;
+    }).catch(() => [] as string[]);
+    if (items.length) parts.push(`[frame:${f.url().slice(0, 40)}] ${items.join(", ")}`);
+  }
+  return parts.join(" | ");
 }
 
 async function locateInAnyFrame(page: Page, selector: string): Promise<Frame | null> {
