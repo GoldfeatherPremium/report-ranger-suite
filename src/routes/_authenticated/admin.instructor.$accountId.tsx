@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -23,6 +23,8 @@ type Class = {
 function Page() {
   const { accountId } = Route.useParams();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const isAssignmentRoute = pathname.startsWith(`/admin/instructor/${accountId}/`);
   const [open, setOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Class | null>(null);
 
@@ -68,6 +70,10 @@ function Page() {
       .eq("id", toDelete.id);
     setToDelete(null);
     if (error) toast.error(error.message); else { toast.success("Class deleted"); refetch(); }
+  }
+
+  if (isAssignmentRoute) {
+    return <Outlet />;
   }
 
   return (
