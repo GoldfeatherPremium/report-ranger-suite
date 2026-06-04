@@ -15,37 +15,52 @@ export const Route = createFileRoute("/api/public/v1/jobs/$jobId")({
 
         const { data: job, error } = await supabaseAdmin
           .from("jobs")
-          .select("id,status,external_ref,attempts,similarity_percent,turnitin_submission_id,started_at,finished_at,error,created_at,user_id")
+          .select("id,status,external_ref,attempts,pipeline,ai_report_status,similarity_percent,turnitin_submission_id,started_at,finished_at,error,created_at,user_id")
           .eq("id", params.jobId)
           .eq("api_client_id", auth.client.id)
           .maybeSingle();
         if (error) return apiError("internal_error", error.message, 500);
         if (!job) return apiError("not_found", "Job not found", 404);
 
+        const j = job as typeof job & { pipeline?: string; ai_report_status?: string | null };
+
         let reportUrl: string | null = null;
         let reportExpiresAt: string | null = null;
-        if (job.status === "completed") {
-          const path = `${job.user_id ?? "api"}/${job.id}.pdf`;
-          const { data: signed } = await supabaseAdmin
-            .storage.from("reports")
-            .createSignedUrl(path, 3600);
-          if (signed) {
-            reportUrl = signed.signedUrl;
-            reportExpiresAt = new Date(Date.now() + 3600_000).toISOString();
+        let aiReportUrl: string | null = null;
+        let aiReportExpiresAt: string | null = null;
+
+        if (j.status === "completed") {
+          const { data: reps } = await supabaseAdmin
+            .from("reports")
+            .select("kind,storage_path,file_name")
+            .eq("job_id", j.id);
+          const expIso = new Date(Date.now() + 3600_000).toISOString();
+          for (const r of reps ?? []) {
+            const { data: signed } = await supabaseAdmin
+              .storage.from("reports")
+              .createSignedUrl(r.storage_path, 3600, { download: r.file_name });
+            if (!signed) continue;
+            if (r.kind === "ai") { aiReportUrl = signed.signedUrl; aiReportExpiresAt = expIso; }
+            else                 { reportUrl   = signed.signedUrl; reportExpiresAt   = expIso; }
           }
         }
 
         return jsonResponse({
-          job_id: job.id,
-          status: job.status,
-          external_ref: job.external_ref,
-          attempts: job.attempts,
-          similarity_percent: job.similarity_percent,
-          submitted_to_turnitin_at: job.started_at,
-          finished_at: job.finished_at,
-          error: job.error,
+          job_id: j.id,
+          status: j.status,
+          external_ref: j.external_ref,
+          attempts: j.attempts,
+          pipeline: j.pipeline ?? "student",
+          report_type: (j.pipeline ?? "student") === "instructor" ? "similarity_ai" : "similarity",
+          similarity_percent: j.similarity_percent,
+          submitted_to_turnitin_at: j.started_at,
+          finished_at: j.finished_at,
+          error: j.error,
           report_url: reportUrl,
           report_expires_at: reportExpiresAt,
+          ai_report_url: aiReportUrl,
+          ai_report_expires_at: aiReportExpiresAt,
+          ai_report_status: j.ai_report_status ?? null,
         });
       },
 

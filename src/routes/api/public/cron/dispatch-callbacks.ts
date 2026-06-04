@@ -109,12 +109,31 @@ async function markDelivery(id: string, attempts: number, status: number, error:
 async function withFreshReportUrl(payload: Record<string, unknown>, jobId: string) {
   if (payload.status !== "completed") return payload;
   const { data: job } = await supabaseAdmin
-    .from("jobs").select("user_id").eq("id", jobId).maybeSingle();
-  const path = `${job?.user_id ?? "api"}/${jobId}.pdf`;
-  const { data: signed } = await supabaseAdmin.storage.from("reports").createSignedUrl(path, 3600);
+    .from("jobs").select("pipeline,ai_report_status").eq("id", jobId).maybeSingle();
+  const { data: reps } = await supabaseAdmin
+    .from("reports").select("kind,storage_path,file_name").eq("job_id", jobId);
+
+  const expIso = new Date(Date.now() + 3600_000).toISOString();
+  let reportUrl: string | null = null;
+  let aiReportUrl: string | null = null;
+  for (const r of reps ?? []) {
+    const { data: signed } = await supabaseAdmin.storage
+      .from("reports").createSignedUrl(r.storage_path, 3600, { download: r.file_name });
+    if (!signed) continue;
+    if (r.kind === "ai") aiReportUrl = signed.signedUrl;
+    else                 reportUrl   = signed.signedUrl;
+  }
+
+  const j = job as { pipeline?: string; ai_report_status?: string | null } | null;
+  const pipeline = j?.pipeline ?? "student";
   return {
     ...payload,
-    report_url: signed?.signedUrl ?? null,
-    report_expires_at: signed ? new Date(Date.now() + 3600_000).toISOString() : null,
+    pipeline,
+    report_type: pipeline === "instructor" ? "similarity_ai" : "similarity",
+    report_url: reportUrl,
+    report_expires_at: reportUrl ? expIso : null,
+    ai_report_url: aiReportUrl,
+    ai_report_expires_at: aiReportUrl ? expIso : null,
+    ai_report_status: j?.ai_report_status ?? null,
   };
 }
