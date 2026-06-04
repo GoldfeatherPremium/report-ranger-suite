@@ -99,19 +99,6 @@ export async function downloadReport(
   return data?.signedUrl ?? null;
 }
 
-export async function retryJob(id: string) {
-  // RPC (security definer): requeues as a fresh upload, clears the stale
-  // slot/submission so the worker doesn't mistake it for a resume, and frees
-  // the prior slot-usage row (the client cannot touch that table under RLS).
-  return supabase.rpc("retry_job" as never, { p_job_id: id } as never);
-}
-
-export async function cancelJob(id: string) {
-  // RPC (security definer): marks cancelled and frees the slot when no document
-  // was submitted, so a cancelled job doesn't leak a Turnitin slot for 24h.
-  return supabase.rpc("cancel_job" as never, { p_job_id: id } as never);
-}
-
 export async function deleteJob(id: string, sourcePath: string) {
   // Remove the generated report object(s) too — deleting the job row cascades
   // the reports rows, but the PDF in the 'reports' bucket would otherwise orphan.
