@@ -156,6 +156,7 @@ export type Database = {
       }
       jobs: {
         Row: {
+          ai_report_status: string | null
           api_client_id: string | null
           attempts: number
           bull_job_id: string | null
@@ -165,11 +166,13 @@ export type Database = {
           external_ref: string | null
           finished_at: string | null
           id: string
+          instructor_assignment_id: string | null
           last_polled_at: string | null
           max_attempts: number
           metadata: Json
           mime_type: string | null
           original_name: string
+          pipeline: string
           portal_id: string | null
           queued_at: string | null
           similarity_percent: number | null
@@ -184,6 +187,7 @@ export type Database = {
           worker_id: string | null
         }
         Insert: {
+          ai_report_status?: string | null
           api_client_id?: string | null
           attempts?: number
           bull_job_id?: string | null
@@ -193,11 +197,13 @@ export type Database = {
           external_ref?: string | null
           finished_at?: string | null
           id?: string
+          instructor_assignment_id?: string | null
           last_polled_at?: string | null
           max_attempts?: number
           metadata?: Json
           mime_type?: string | null
           original_name: string
+          pipeline?: string
           portal_id?: string | null
           queued_at?: string | null
           similarity_percent?: number | null
@@ -212,6 +218,7 @@ export type Database = {
           worker_id?: string | null
         }
         Update: {
+          ai_report_status?: string | null
           api_client_id?: string | null
           attempts?: number
           bull_job_id?: string | null
@@ -221,11 +228,13 @@ export type Database = {
           external_ref?: string | null
           finished_at?: string | null
           id?: string
+          instructor_assignment_id?: string | null
           last_polled_at?: string | null
           max_attempts?: number
           metadata?: Json
           mime_type?: string | null
           original_name?: string
+          pipeline?: string
           portal_id?: string | null
           queued_at?: string | null
           similarity_percent?: number | null
@@ -245,6 +254,13 @@ export type Database = {
             columns: ["api_client_id"]
             isOneToOne: false
             referencedRelation: "api_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jobs_instructor_assignment_id_fkey"
+            columns: ["instructor_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_instructor_assignments"
             referencedColumns: ["id"]
           },
           {
@@ -315,6 +331,7 @@ export type Database = {
           file_name: string
           id: string
           job_id: string
+          kind: string
           mime_type: string | null
           size_bytes: number | null
           storage_path: string
@@ -324,6 +341,7 @@ export type Database = {
           file_name: string
           id?: string
           job_id: string
+          kind?: string
           mime_type?: string | null
           size_bytes?: number | null
           storage_path: string
@@ -333,6 +351,7 @@ export type Database = {
           file_name?: string
           id?: string
           job_id?: string
+          kind?: string
           mime_type?: string | null
           size_bytes?: number | null
           storage_path?: string
@@ -382,6 +401,163 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      turnitin_instructor_accounts: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_active: boolean
+          label: string
+          login_url: string
+          notes: string | null
+          password_encrypted: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          is_active?: boolean
+          label: string
+          login_url?: string
+          notes?: string | null
+          password_encrypted: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          login_url?: string
+          notes?: string | null
+          password_encrypted?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      turnitin_instructor_assignments: {
+        Row: {
+          class_id: string
+          cooldown_hours: number
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          submit_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          class_id: string
+          cooldown_hours?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          submit_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          class_id?: string
+          cooldown_hours?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          submit_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnitin_instructor_assignments_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_instructor_classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      turnitin_instructor_classes: {
+        Row: {
+          account_id: string
+          class_url: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          class_url?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          class_url?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnitin_instructor_classes_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_instructor_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      turnitin_instructor_slot_usage: {
+        Row: {
+          assignment_id: string
+          freed_at: string | null
+          id: string
+          job_id: string
+          submitted_at: string
+          turnitin_submission_id: string | null
+        }
+        Insert: {
+          assignment_id: string
+          freed_at?: string | null
+          id?: string
+          job_id: string
+          submitted_at?: string
+          turnitin_submission_id?: string | null
+        }
+        Update: {
+          assignment_id?: string
+          freed_at?: string | null
+          id?: string
+          job_id?: string
+          submitted_at?: string
+          turnitin_submission_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnitin_instructor_slot_usage_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "turnitin_instructor_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "turnitin_instructor_slot_usage_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       turnitin_slot_usage: {
         Row: {
@@ -551,6 +727,16 @@ export type Database = {
     }
     Functions: {
       _turnitin_key: { Args: never; Returns: string }
+      add_instructor_account: {
+        Args: {
+          p_email: string
+          p_label: string
+          p_login_url: string
+          p_notes: string
+          p_password: string
+        }
+        Returns: string
+      }
       add_turnitin_account: {
         Args: {
           p_email: string
@@ -561,9 +747,10 @@ export type Database = {
         }
         Returns: string
       }
-      claim_next_job: {
+      claim_next_instructor_job: {
         Args: { p_worker_id: string }
         Returns: {
+          ai_report_status: string | null
           api_client_id: string | null
           attempts: number
           bull_job_id: string | null
@@ -573,11 +760,53 @@ export type Database = {
           external_ref: string | null
           finished_at: string | null
           id: string
+          instructor_assignment_id: string | null
           last_polled_at: string | null
           max_attempts: number
           metadata: Json
           mime_type: string | null
           original_name: string
+          pipeline: string
+          portal_id: string | null
+          queued_at: string | null
+          similarity_percent: number | null
+          size_bytes: number | null
+          slot_id: string | null
+          source_path: string
+          started_at: string | null
+          status: Database["public"]["Enums"]["job_state"]
+          turnitin_submission_id: string | null
+          updated_at: string
+          user_id: string | null
+          worker_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_next_job: {
+        Args: { p_worker_id: string }
+        Returns: {
+          ai_report_status: string | null
+          api_client_id: string | null
+          attempts: number
+          bull_job_id: string | null
+          callback_url: string | null
+          created_at: string
+          error: string | null
+          external_ref: string | null
+          finished_at: string | null
+          id: string
+          instructor_assignment_id: string | null
+          last_polled_at: string | null
+          max_attempts: number
+          metadata: Json
+          mime_type: string | null
+          original_name: string
+          pipeline: string
           portal_id: string | null
           queued_at: string | null
           similarity_percent: number | null
@@ -603,12 +832,20 @@ export type Database = {
         Returns: Json
       }
       decrypt_account_password: { Args: { account: string }; Returns: string }
+      decrypt_instructor_account_password: {
+        Args: { account: string }
+        Returns: string
+      }
       encrypt_account_password: { Args: { plain: string }; Returns: string }
       enqueue_job_callback: {
         Args: { p_event: string; p_job_id: string }
         Returns: undefined
       }
       is_admin: { Args: never; Returns: boolean }
+      reassign_instructor_job_assignment: {
+        Args: { p_exclude_assignment_ids: string[]; p_job_id: string }
+        Returns: string
+      }
       reassign_job_slot: {
         Args: { p_exclude_slot_ids: string[]; p_job_id: string }
         Returns: string
