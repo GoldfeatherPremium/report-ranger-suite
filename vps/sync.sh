@@ -130,8 +130,25 @@ restart_svc() {
   fi
 }
 
+# Copy any GEMINI_API_KEYS / GEMINI_API_KEY lines from the student .env into the
+# instructor .env if they aren't already present there. Used both when creating
+# a fresh instructor .env and to backfill an existing one.
+sync_gemini_keys() {
+  [[ -f "$STUDENT_DIR/.env" ]] || return 0
+  for var in GEMINI_API_KEYS GEMINI_API_KEY; do
+    local line; line=$(grep "^${var}=" "$STUDENT_DIR/.env" | head -1 || true)
+    [[ -z "$line" ]] && continue
+    if grep -q "^${var}=" "$INSTRUCTOR_DIR/.env" 2>/dev/null; then continue; fi
+    echo "$line" >> "$INSTRUCTOR_DIR/.env"
+    ok "Copied $var into instructor .env (from student worker)"
+  done
+}
+
 ensure_instructor_env() {
-  if [[ -f "$INSTRUCTOR_DIR/.env" ]]; then return 0; fi
+  if [[ -f "$INSTRUCTOR_DIR/.env" ]]; then
+    sync_gemini_keys   # backfill Gemini keys into an existing instructor .env
+    return 0
+  fi
 
   warn "Instructor .env not found — creating from student worker keys."
   if [[ ! -f "$STUDENT_DIR/.env" ]]; then
@@ -178,7 +195,8 @@ POLL_INTERVAL_MS=30000
 CLAIM_IDLE_MS=10000
 HEARTBEAT_MS=30000
 ENVEOF
-  ok "Created $INSTRUCTOR_DIR/.env (SUPABASE keys copied from student worker)"
+  sync_gemini_keys   # also copy GEMINI_API_KEYS / GEMINI_API_KEY
+  ok "Created $INSTRUCTOR_DIR/.env (SUPABASE + Gemini keys copied from student worker)"
 }
 
 # ── 2. Student worker ──────────────────────────────────────────────────────────

@@ -100,6 +100,19 @@ if [[ "$BOTH" -eq 1 ]]; then
   restart_svc  "turnitin-worker"
 fi
 
+# Copy GEMINI_API_KEYS / GEMINI_API_KEY from student .env into instructor .env
+# if not already present (backfills existing files too).
+sync_gemini_keys() {
+  [[ -f "$STUDENT_DIR/.env" ]] || return 0
+  for var in GEMINI_API_KEYS GEMINI_API_KEY; do
+    line=$(grep "^${var}=" "$STUDENT_DIR/.env" | head -1 || true)
+    [[ -z "$line" ]] && continue
+    if grep -q "^${var}=" "$INSTRUCTOR_DIR/.env" 2>/dev/null; then continue; fi
+    echo "$line" >> "$INSTRUCTOR_DIR/.env"
+    ok "Copied $var into instructor .env (from student worker)"
+  done
+}
+
 # ── 3. INSTRUCTOR WORKER ────────────────────────────────────────────────────────
 sep
 if [[ ! -f "$INSTRUCTOR_DIR/.env" ]]; then
@@ -122,7 +135,8 @@ POLL_INTERVAL_MS=30000
 CLAIM_IDLE_MS=10000
 HEARTBEAT_MS=30000
 ENVEOF
-      ok "Created $INSTRUCTOR_DIR/.env (copied SUPABASE keys from student worker)"
+      sync_gemini_keys
+      ok "Created $INSTRUCTOR_DIR/.env (copied SUPABASE + Gemini keys from student worker)"
     else
       warn "Could not read SUPABASE keys from $STUDENT_DIR/.env — create $INSTRUCTOR_DIR/.env manually."
       exit 1
@@ -131,6 +145,8 @@ ENVEOF
     warn "No student .env to copy from. Create $INSTRUCTOR_DIR/.env manually, then re-run."
     exit 1
   fi
+else
+  sync_gemini_keys   # backfill Gemini keys into existing instructor .env
 fi
 
 log "Instructor worker (similarity + AI pipeline)"
