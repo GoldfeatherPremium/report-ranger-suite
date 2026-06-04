@@ -1012,9 +1012,12 @@ async function gotoAssignmentPage(page: Page, url: string, onProgress: Logger): 
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
 
   // Wait up to 30s for the student table / ⋮ controls to render.
-  // tii-grn-button is the Turnitin web component for the ⋮ action button.
+  // The student rows + ⋮ "More actions" buttons sit BELOW the fold, so we scroll
+  // down on each poll to bring them into view (lazy/virtualised rows only render
+  // once scrolled). Scroll the main page and every frame body.
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    await scrollAllFrames(page);
     const rowCount = await page.locator("table tbody tr, [role=row], tii-grn-submission-row").count().catch(() => 0);
     const ready =
       (await locateInAnyFrame(page, SEL.moreDotsButton)) !== null ||
@@ -1035,6 +1038,25 @@ async function gotoAssignmentPage(page: Page, url: string, onProgress: Logger): 
   }
   await onProgress(`assignment page settle timeout — dumping page controls for diagnosis:`);
   await dumpAssignmentPageControls(page, onProgress);
+}
+
+// Scroll the main page and every child frame to the bottom, then partway back up.
+// The submission table / ⋮ buttons render below the fold and only paint once
+// scrolled into view; this nudges lazy/virtualised rows to materialise.
+async function scrollAllFrames(page: Page): Promise<void> {
+  for (const f of page.frames()) {
+    await f.evaluate(() => {
+      const docEl = document.scrollingElement || document.documentElement || document.body;
+      if (docEl) docEl.scrollTop = docEl.scrollHeight;
+      // Also scroll any inner scrollable containers (the table often lives in one)
+      document.querySelectorAll<HTMLElement>("*").forEach((el) => {
+        if (el.scrollHeight > el.clientHeight + 50 && el.clientHeight > 0) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    }).catch(() => {});
+  }
+  await page.mouse.wheel(0, 1200).catch(() => {});
 }
 
 async function locateInAnyFrame(page: Page, selector: string): Promise<Frame | null> {
