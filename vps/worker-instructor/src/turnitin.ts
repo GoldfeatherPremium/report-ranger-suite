@@ -29,6 +29,7 @@ const SEL = {
   // The step1 loop validates that the opened popup contains "Submit file" or
   // "Resubmit file" before proceeding — any other popup is closed immediately.
   moreDotsButton: [
+    // Named aria labels
     '[aria-label="More"]',
     '[aria-label="more"]',
     '[aria-label*="more options" i]',
@@ -37,18 +38,31 @@ const SEL = {
     '[aria-label*="submission actions" i]',
     'button[title="More"]',
     'button[title="more"]',
+    // PrimeVue SplitButton / Menu toggle class names
     'button.p-menu-toggle',
     'button.p-splitbutton-menubutton',
     '.p-menu-toggle',
+    '[data-pc-section="menubutton"]',
+    // PrimeVue icon-only button containing the vertical or horizontal ellipsis icon
+    'button:has(.pi-ellipsis-v)',
+    'button:has(.pi-ellipsis-h)',
+    // Any icon-only button that opens a popup (aria-haspopup covers PrimeVue menus)
+    'table button[aria-haspopup]',
+    'table button[aria-haspopup="true"]',
+    '[role="row"] button[aria-haspopup]',
+    '[role="gridcell"] button[aria-haspopup]',
   ].join(", "),
 
-  // "Submit file" dropdown item (empty rows)
+  // "Submit file" dropdown item (empty rows) — also matches "Submit" without "file"
   submitFileMenuItem: [
     'a:has-text("Submit file")',
     'button:has-text("Submit file")',
     'li:has-text("Submit file")',
     '[role="menuitem"]:has-text("Submit file")',
     'span:has-text("Submit file")',
+    // Shorter variant — only if standalone (not inside a longer label that contains "Resubmit")
+    '[role="menuitem"]:has-text("Submit")',
+    '.p-menu-item-content:has-text("Submit")',
   ].join(", "),
 
   // File attachment
@@ -108,13 +122,17 @@ const SEL = {
     '.notification-close',
   ].join(", "),
 
-  // "Resubmit file" dropdown item (used rows); dialog has Confirm button
+  // "Resubmit file" dropdown item (used rows); also matches "Resubmit" without "file"
   resubmitMenuItem: [
     'a:has-text("Resubmit file")',
     'button:has-text("Resubmit file")',
     'li:has-text("Resubmit file")',
     '[role="menuitem"]:has-text("Resubmit file")',
     'span:has-text("Resubmit file")',
+    '[role="menuitem"]:has-text("Resubmit")',
+    '.p-menu-item-content:has-text("Resubmit")',
+    '.p-menuitem-link:has-text("Resubmit")',
+    'a.p-menuitem-link:has-text("Resubmit")',
   ].join(", "),
   confirmResubmission: 'button:has-text("Confirm"), input[value="Confirm"], a:has-text("Confirm")',
   resubmitDenied: [
@@ -387,6 +405,22 @@ export async function submitToTurnitin(opts: {
         }
 
         if (frameDots.length === 0) {
+          // Emit targeted [diag] for any aria-haspopup or ellipsis-icon buttons to help identify correct selectors
+          for (const f of page.frames()) {
+            try {
+              const hpButtons = await f.$$eval(
+                "button[aria-haspopup], button:has(.pi-ellipsis-v), button:has(.pi-ellipsis-h), [role='button'][aria-haspopup]",
+                (els) => els.slice(0, 10).map((e) => {
+                  const el = e as HTMLElement;
+                  return `tag=${el.tagName} class="${el.className}" aria-label="${el.getAttribute("aria-label") || ""}" aria-haspopup="${el.getAttribute("aria-haspopup") || ""}" text="${el.innerText?.slice(0, 40) || ""}"`;
+                }),
+              ).catch(() => [] as string[]);
+              if (hpButtons.length > 0) {
+                await onProgress(`[diag] frame ${f.url().slice(0, 60)}: haspopup/ellipsis buttons: ${hpButtons.join(" | ")}`);
+              }
+            } catch { /* ignore */ }
+          }
+
           // AI fallback — last resort
           const ai = await findElementWithAI(page, 'the vertical three-dot ⋮ More button in the rightmost "More" column of the student submission table row');
           if (ai) {
@@ -418,13 +452,20 @@ export async function submitToTurnitin(opts: {
             await page.mouse.move(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
             await page.waitForTimeout(150);
             await page.mouse.click(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
-            await page.waitForTimeout(800);
 
-            const hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))  !== null;
-            const hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
+            // Wait up to 2s for the popup to render (Turnitin SPA can be slow)
+            let hasResubmit   = false;
+            let hasSubmitFile = false;
+            for (let w = 0; w < 4; w++) {
+              await page.waitForTimeout(500);
+              hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))  !== null;
+              hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
+              if (hasResubmit || hasSubmitFile) break;
+            }
 
             // SAFETY: close immediately if not a submission menu
             if (!hasResubmit && !hasSubmitFile) {
+              await onProgress(`[warn] step1: popup not a submission menu — closing (row skipped)`);
               await page.keyboard.press("Escape");
               await page.waitForTimeout(300);
               continue;
