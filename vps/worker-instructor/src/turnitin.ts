@@ -380,115 +380,111 @@ export async function submitToTurnitin(opts: {
       const step1Deadline = Date.now() + 90_000;
       while (Date.now() < step1Deadline && !submitFileOpened) {
 
-        // Search every frame for ⋮ buttons and track which frame owns them
-        const frameDots: { frame: Frame; locator: Locator }[] = [];
+        // Make sure below-fold rows are rendered before we look for buttons.
+        await scrollAllFrames(page);
+
+        // Detect ⋮ buttons via in-page evaluate (querySelectorAll) — this is the
+        // SAME mechanism the [diag] dump uses and which reliably sees the
+        // button.options-dropdown / "More actions" buttons that locator() misses.
+        const dotFrames: { frame: Frame; count: number }[] = [];
         for (const frame of page.frames()) {
-          // Primary: button.options-dropdown / "More actions" (confirmed from [diag])
-          let locs = await frame.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
-          // Fallback: any aria-haspopup button whose text is exactly "More actions"
-          // (avoids the "Instructor"/"English" nav decoys)
-          if (locs.length === 0) {
-            const haspopup = await frame.locator('button[aria-haspopup="true"]').all().catch(() => [] as Locator[]);
-            for (const b of haspopup) {
-              const t = (await b.innerText().catch(() => "")).trim().toLowerCase();
-              if (t.includes("more actions") || t === "more") locs.push(b);
+          const count = await tagDotsInFrame(frame);
+          if (count > 0) dotFrames.push({ frame, count });
+        }
+        const totalDots = dotFrames.reduce((s, d) => s + d.count, 0);
+
+        if (totalDots === 0) {
+          // Diagnostic: show what aria-haspopup buttons DO exist
+          for (const f of page.frames()) {
+            const hpButtons = await f.$$eval(
+              "button[aria-haspopup], [role='button'][aria-haspopup]",
+              (els) => els.slice(0, 10).map((e) => {
+                const el = e as HTMLElement;
+                return `class="${el.className}" haspopup="${el.getAttribute("aria-haspopup") || ""}" text="${(el.innerText || "").slice(0, 30)}"`;
+              }),
+            ).catch(() => [] as string[]);
+            if (hpButtons.length > 0) {
+              await onProgress(`[diag] ${f.url().slice(0, 50)}: ${hpButtons.join(" | ")}`);
             }
           }
-          for (const loc of locs) {
-            frameDots.push({ frame, locator: loc });
-          }
-        }
-
-        if (frameDots.length === 0) {
-          // Emit targeted [diag] for any aria-haspopup or ellipsis-icon buttons to help identify correct selectors
-          for (const f of page.frames()) {
-            try {
-              const hpButtons = await f.$$eval(
-                "button[aria-haspopup], button:has(.pi-ellipsis-v), button:has(.pi-ellipsis-h), [role='button'][aria-haspopup]",
-                (els) => els.slice(0, 10).map((e) => {
-                  const el = e as HTMLElement;
-                  return `tag=${el.tagName} class="${el.className}" aria-label="${el.getAttribute("aria-label") || ""}" aria-haspopup="${el.getAttribute("aria-haspopup") || ""}" text="${el.innerText?.slice(0, 40) || ""}"`;
-                }),
-              ).catch(() => [] as string[]);
-              if (hpButtons.length > 0) {
-                await onProgress(`[diag] frame ${f.url().slice(0, 60)}: haspopup/ellipsis buttons: ${hpButtons.join(" | ")}`);
-              }
-            } catch { /* ignore */ }
-          }
-
-          // AI fallback — last resort
-          const ai = await findElementWithAI(page, 'the vertical three-dot ⋮ More button in the rightmost "More" column of the student submission table row');
+          // AI assistance (Gemini) — last resort when our heuristics find nothing.
+          // Requires GEMINI_API_KEY in the worker .env; silently no-ops otherwise.
+          const ai = await findElementWithAI(page, 'the three-dot "More actions" ⋮ button on a student submission row that opens a menu with "Resubmit file"');
           if (ai) {
-            await onProgress(`[warn] step1: AI fallback selector: ${ai.selector}`);
+            await onProgress(`[ai] step1: Gemini suggested selector: ${ai.selector} (${ai.reasoning})`);
             await tryClickInAnyFrame(page, ai.selector, 5_000);
-            await page.waitForTimeout(1_000);
-            const hasResubmit = (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null;
-            const hasSubmit   = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
-            if (!hasResubmit && !hasSubmit) {
-              await onProgress("[warn] step1: AI button opened unexpected menu — closing");
+            await page.waitForTimeout(1_200);
+            if ((await menuItemFrame(page, ["resubmit", "submit file"])) === null) {
+              await onProgress("[ai] step1: AI click did not open a submission menu — closing");
               await page.keyboard.press("Escape");
             }
-          } else {
-            await onProgress(`[warn] step1: no ⋮ buttons in any frame (${page.frames().length} frames) — waiting`);
           }
+
+          await onProgress(`[warn] step1: no ⋮ "More actions" buttons found yet (${page.frames().length} frames) — scrolling + waiting`);
           await page.waitForTimeout(2_000);
           continue;
         }
 
-        await onProgress(`step1: found ${frameDots.length} ⋮ button(s) across ${page.frames().length} frames — trying each`);
+        await onProgress(`step1: found ${totalDots} ⋮ button(s) across ${dotFrames.length} frame(s) — trying each row`);
 
-        for (const { locator: dotBtn } of frameDots) {
+        for (const { frame, count } of dotFrames) {
           if (submitFileOpened) break;
-          try {
-            const box = await dotBtn.boundingBox().catch(() => null);
-            if (!box) continue;
+          for (let idx = 0; idx < count; idx++) {
+            if (submitFileOpened) break;
+            try {
+              // Re-tag in case the DOM re-rendered between rows
+              await tagDotsInFrame(frame);
+              const clicked = await clickDotInFrame(frame, idx);
+              if (!clicked) continue;
+              await onProgress(`step1: clicked ⋮ on row ${idx + 1}`);
 
-            await dotBtn.scrollIntoViewIfNeeded().catch(() => {});
-            await page.mouse.move(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
-            await page.waitForTimeout(150);
-            await page.mouse.click(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+              // Wait up to 3s for the popup menu to render
+              let hasResubmit = false;
+              let hasSubmitFile = false;
+              for (let w = 0; w < 6; w++) {
+                await page.waitForTimeout(500);
+                hasResubmit   = (await menuItemFrame(page, ["resubmit"]))     !== null;
+                hasSubmitFile = (await menuItemFrame(page, ["submit file"]))  !== null;
+                if (hasResubmit || hasSubmitFile) break;
+              }
 
-            // Wait up to 2s for the popup to render (Turnitin SPA can be slow)
-            let hasResubmit   = false;
-            let hasSubmitFile = false;
-            for (let w = 0; w < 4; w++) {
-              await page.waitForTimeout(500);
-              hasResubmit   = (await locateInAnyFrame(page, SEL.resubmitMenuItem))  !== null;
-              hasSubmitFile = (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null;
-              if (hasResubmit || hasSubmitFile) break;
-            }
-
-            // SAFETY: close immediately if not a submission menu
-            if (!hasResubmit && !hasSubmitFile) {
-              await onProgress(`[warn] step1: popup not a submission menu — closing (row skipped)`);
-              await page.keyboard.press("Escape");
-              await page.waitForTimeout(300);
-              continue;
-            }
-
-            if (hasSubmitFile) {
-              await onProgress("step1: found 'Submit file' — clicking it");
-              await smartClick(page, SEL.submitFileMenuItem, "the Submit file menu item", onProgress, 5_000);
-              submitFileOpened = true;
-            } else {
-              // Normal path: Resubmit file
-              await onProgress("step1: found 'Resubmit file' — clicking it");
-              if (await isResubmitDenied(page, onProgress)) {
-                await onProgress("step1: row is denied — trying next row");
+              // SAFETY: close immediately if not a submission menu
+              if (!hasResubmit && !hasSubmitFile) {
+                await onProgress(`[warn] step1: row ${idx + 1} popup not a submission menu — closing`);
                 await page.keyboard.press("Escape");
-                await page.waitForTimeout(400);
+                await page.waitForTimeout(300);
                 continue;
               }
-              await smartClick(page, SEL.resubmitMenuItem, "the Resubmit file menu item", onProgress, 5_000);
-              await page.waitForTimeout(600);
-              await onProgress("step1: confirming resubmit dialog");
-              await smartClick(page, SEL.confirmResubmission, "the Confirm button in the resubmit dialog", onProgress, 10_000);
-              await page.waitForTimeout(1_000);
-              if (await isResubmitDenied(page, onProgress)) throw new ResubmitDeniedError(assignment.assignment_label);
-              submitFileOpened = true;
+
+              if (hasResubmit) {
+                await onProgress(`step1: row ${idx + 1} → clicking 'Resubmit file'`);
+                if (await isResubmitDenied(page, onProgress)) {
+                  await onProgress(`step1: row ${idx + 1} denied — trying next row`);
+                  await page.keyboard.press("Escape");
+                  await page.waitForTimeout(400);
+                  continue;
+                }
+                const ok = await clickMenuItem(page, ["resubmit"]);
+                if (!ok) { await page.keyboard.press("Escape"); continue; }
+                await page.waitForTimeout(800);
+                // Confirm dialog (if any)
+                if ((await menuItemFrame(page, ["confirm"])) !== null) {
+                  await onProgress("step1: confirming resubmit dialog");
+                  await clickMenuItem(page, ["confirm"]);
+                  await page.waitForTimeout(1_000);
+                }
+                if (await isResubmitDenied(page, onProgress)) throw new ResubmitDeniedError(assignment.assignment_label);
+                submitFileOpened = true;
+              } else {
+                await onProgress(`step1: row ${idx + 1} → clicking 'Submit file'`);
+                const ok = await clickMenuItem(page, ["submit file", "submit"]);
+                if (!ok) { await page.keyboard.press("Escape"); continue; }
+                submitFileOpened = true;
+              }
+            } catch (rowErr) {
+              if (rowErr instanceof ResubmitDeniedError) throw rowErr;
+              await onProgress(`[warn] step1: row ${idx + 1} attempt failed (${rowErr instanceof Error ? rowErr.message : String(rowErr)}) — next row`);
             }
-          } catch (rowErr) {
-            await onProgress(`[warn] step1: row attempt failed (${rowErr instanceof Error ? rowErr.message : String(rowErr)}) — trying next row`);
           }
         }
         if (!submitFileOpened) await page.waitForTimeout(1_000);
@@ -1057,6 +1053,86 @@ async function scrollAllFrames(page: Page): Promise<void> {
     }).catch(() => {});
   }
   await page.mouse.wheel(0, 1200).catch(() => {});
+}
+
+// ── evaluate-based ⋮ / menu helpers ─────────────────────────────────────────────
+// Playwright's locator() CSS matching has proven unreliable against this page's
+// markup (it returns 0 even when the button demonstrably exists in the [diag]
+// dump). These helpers drive detection + clicking through in-page evaluate /
+// querySelectorAll — exactly what the diag uses, and which reliably sees them.
+
+// Tag every candidate ⋮ "More actions" button in a frame with data-tii-dot=N and
+// return how many were found. Excludes the "Instructor"/"English" nav decoys.
+async function tagDotsInFrame(frame: Frame): Promise<number> {
+  return await frame.evaluate(() => {
+    const all = Array.from(document.querySelectorAll("button, [role=button], tii-grn-button")) as HTMLElement[];
+    let n = 0;
+    for (const el of all) {
+      el.removeAttribute("data-tii-dot");
+      const cls = (el.className && el.className.toString()) || "";
+      const txt = (el.innerText || el.textContent || "").trim().toLowerCase();
+      const hp  = el.getAttribute("aria-haspopup");
+      const isDot =
+        cls.includes("options-dropdown") ||
+        txt.includes("more actions") ||
+        (hp === "true" && txt === "more");
+      if (isDot) { el.setAttribute("data-tii-dot", String(n)); n++; }
+    }
+    return n;
+  }).catch(() => 0);
+}
+
+// Click the ⋮ button previously tagged with data-tii-dot=idx in this frame.
+async function clickDotInFrame(frame: Frame, idx: number): Promise<boolean> {
+  return await frame.evaluate((i) => {
+    const el = document.querySelector(`[data-tii-dot="${i}"]`) as HTMLElement | null;
+    if (!el) return false;
+    el.scrollIntoView({ block: "center", inline: "center" });
+    el.click();
+    return true;
+  }, idx).catch(() => false);
+}
+
+// Find the frame currently showing a dropdown menu item whose visible text
+// contains any of `needles` (case-insensitive). Reads slotted web-component
+// text too (tii-grn-dropdown-menu-item-alpha keeps its label in light DOM).
+async function menuItemFrame(page: Page, needles: string[]): Promise<Frame | null> {
+  for (const f of page.frames()) {
+    const found = await f.evaluate((ns) => {
+      const els = Array.from(document.querySelectorAll(
+        "tii-grn-dropdown-menu-item-alpha, [role=menuitem], li, a, button, span, div[slot=title]",
+      )) as HTMLElement[];
+      return els.some((el) => {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return t.length < 60 && ns.some((n) => t.includes(n));
+      });
+    }, needles).catch(() => false);
+    if (found) return f;
+  }
+  return null;
+}
+
+// Click the first dropdown menu item whose visible text contains any of `needles`.
+async function clickMenuItem(page: Page, needles: string[]): Promise<boolean> {
+  for (const f of page.frames()) {
+    const clicked = await f.evaluate((ns) => {
+      const els = Array.from(document.querySelectorAll(
+        "tii-grn-dropdown-menu-item-alpha, [role=menuitem], li, a, button, div[slot=title]",
+      )) as HTMLElement[];
+      for (const el of els) {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        if (t.length < 60 && ns.some((n) => t.includes(n))) {
+          const clickable = (el.closest("button, a, [role=menuitem], tii-grn-dropdown-menu-item-alpha") as HTMLElement) || el;
+          clickable.scrollIntoView({ block: "center" });
+          clickable.click();
+          return true;
+        }
+      }
+      return false;
+    }, needles).catch(() => false);
+    if (clicked) return true;
+  }
+  return false;
 }
 
 async function locateInAnyFrame(page: Page, selector: string): Promise<Frame | null> {
