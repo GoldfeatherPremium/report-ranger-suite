@@ -24,44 +24,36 @@ const SEL = {
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
 
   // ⋮ "More" button on each student row.
-  // IMPORTANT: keep these selectors SPECIFIC. Overly broad selectors (e.g.
-  // "all buttons in a tr") will click delete/admin buttons on the page.
-  // The step1 loop validates that the opened popup contains "Submit file" or
-  // "Resubmit file" before proceeding — any other popup is closed immediately.
+  // Turnitin uses Stencil.js web components: the button is <tii-grn-button>
+  // inside a <tii-grn-dropdown> wrapper per row.
+  // The step1 loop validates the opened popup contains "Resubmit"/"Submit file"
+  // before proceeding — any other popup is closed immediately (safety gate).
   moreDotsButton: [
-    // Named aria labels
+    // Turnitin web-component selectors (primary — confirmed from DevTools)
+    'tii-grn-dropdown tii-grn-button',
+    'tii-grn-dropdown-button tii-grn-button',
+    'tii-grn-button[part*="trigger" i]',
+    // Fallback: any tii-grn-button in a table row context
+    'table tii-grn-button',
+    '[role="row"] tii-grn-button',
+    '[role="gridcell"] tii-grn-button',
+    // Generic named fallbacks
     '[aria-label="More"]',
-    '[aria-label="more"]',
     '[aria-label*="more options" i]',
-    '[aria-label*="more actions" i]',
     '[aria-label*="row actions" i]',
     '[aria-label*="submission actions" i]',
     'button[title="More"]',
-    'button[title="more"]',
-    // PrimeVue SplitButton / Menu toggle class names
-    'button.p-menu-toggle',
-    'button.p-splitbutton-menubutton',
-    '.p-menu-toggle',
-    '[data-pc-section="menubutton"]',
-    // PrimeVue icon-only button containing the vertical or horizontal ellipsis icon
-    'button:has(.pi-ellipsis-v)',
-    'button:has(.pi-ellipsis-h)',
-    // Any icon-only button that opens a popup (aria-haspopup covers PrimeVue menus)
-    'table button[aria-haspopup]',
-    'table button[aria-haspopup="true"]',
-    '[role="row"] button[aria-haspopup]',
-    '[role="gridcell"] button[aria-haspopup]',
   ].join(", "),
 
-  // "Submit file" dropdown item (empty rows) — also matches "Submit" without "file"
+  // "Submit file" dropdown item — tii-grn-dropdown-menu-item-alpha web component.
+  // Playwright's :has-text() pierces shadow DOM so it matches the inner text.
   submitFileMenuItem: [
-    'a:has-text("Submit file")',
-    'button:has-text("Submit file")',
-    'li:has-text("Submit file")',
+    'tii-grn-dropdown-menu-item-alpha:has-text("Submit file")',
+    'tii-grn-dropdown-menu-item-alpha:has-text("Submit")',
+    // Standard HTML fallbacks
     '[role="menuitem"]:has-text("Submit file")',
-    'span:has-text("Submit file")',
-    // Shorter variant — only if standalone (not inside a longer label that contains "Resubmit")
-    '[role="menuitem"]:has-text("Submit")',
+    'a:has-text("Submit file")',
+    'li:has-text("Submit file")',
     '.p-menu-item-content:has-text("Submit")',
   ].join(", "),
 
@@ -122,24 +114,31 @@ const SEL = {
     '.notification-close',
   ].join(", "),
 
-  // "Resubmit file" dropdown item (used rows); also matches "Resubmit" without "file"
+  // "Resubmit file" dropdown item — tii-grn-dropdown-menu-item-alpha web component.
   resubmitMenuItem: [
-    'a:has-text("Resubmit file")',
-    'button:has-text("Resubmit file")',
-    'li:has-text("Resubmit file")',
+    'tii-grn-dropdown-menu-item-alpha:has-text("Resubmit file")',
+    'tii-grn-dropdown-menu-item-alpha:has-text("Resubmit")',
+    // Standard HTML fallbacks
     '[role="menuitem"]:has-text("Resubmit file")',
-    'span:has-text("Resubmit file")',
+    'a:has-text("Resubmit file")',
+    'li:has-text("Resubmit file")',
     '[role="menuitem"]:has-text("Resubmit")',
-    '.p-menu-item-content:has-text("Resubmit")',
-    '.p-menuitem-link:has-text("Resubmit")',
-    'a.p-menuitem-link:has-text("Resubmit")',
   ].join(", "),
-  confirmResubmission: 'button:has-text("Confirm"), input[value="Confirm"], a:has-text("Confirm")',
+  // Confirm button in the resubmit dialog — likely also a tii-grn-button
+  confirmResubmission: [
+    'tii-grn-button:has-text("Confirm")',
+    'button:has-text("Confirm")',
+    'input[value="Confirm"]',
+    'a:has-text("Confirm")',
+  ].join(", "),
   resubmitDenied: [
+    // tii-grn-dropdown-menu-item-alpha with disabled state
+    'tii-grn-dropdown-menu-item-alpha[disabled]:has-text("Resubmit")',
+    'tii-grn-dropdown-menu-item-alpha[aria-disabled="true"]:has-text("Resubmit")',
+    // Standard fallbacks
     '[class*="resubmit"][disabled]',
     '[class*="resubmit"][aria-disabled="true"]',
     'button[disabled][class*="resubmit"]',
-    'input[disabled][value*="Resubmit" i]',
   ].join(", "),
 
   // Similarity score link (opens viewer)
@@ -389,15 +388,11 @@ export async function submitToTurnitin(opts: {
         // Search every frame for ⋮ buttons and track which frame owns them
         const frameDots: { frame: Frame; locator: Locator }[] = [];
         for (const frame of page.frames()) {
-          // Primary selectors
+          // Primary: tii-grn-button web components (confirmed from DevTools) + named fallbacks
           let locs = await frame.locator(SEL.moreDotsButton).all().catch(() => [] as Locator[]);
-          // Fallback: last-cell button inside any table row in this frame
+          // Fallback A: any tii-grn-button anywhere on the frame (catches edge-case nesting)
           if (locs.length === 0) {
-            locs = await frame.locator("table tbody tr td:last-child button, table tr td:last-child button").all().catch(() => [] as Locator[]);
-          }
-          // Broader fallback: any button in any table cell
-          if (locs.length === 0) {
-            locs = await frame.locator("table td button, [role=row] button, [role=gridcell] button").all().catch(() => [] as Locator[]);
+            locs = await frame.locator("tii-grn-button").all().catch(() => [] as Locator[]);
           }
           for (const loc of locs) {
             frameDots.push({ frame, locator: loc });
@@ -1016,14 +1011,16 @@ async function gotoAssignmentPage(page: Page, url: string, onProgress: Logger): 
   await page.waitForLoadState("load", { timeout: 60_000 }).catch(() => {});
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
 
-  // Wait up to 25s for the student table / ⋮ controls to render.
-  const deadline = Date.now() + 25_000;
+  // Wait up to 30s for the student table / ⋮ controls to render.
+  // tii-grn-button is the Turnitin web component for the ⋮ action button.
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const rowCount = await page.locator("table tbody tr, [role=row]").count().catch(() => 0);
+    const rowCount = await page.locator("table tbody tr, [role=row], tii-grn-submission-row").count().catch(() => 0);
     const ready =
       (await locateInAnyFrame(page, SEL.moreDotsButton)) !== null ||
       (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null ||
       (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null ||
+      (await locateInAnyFrame(page, "tii-grn-button")) !== null ||
       rowCount > 1;
     if (ready) {
       await onProgress(`assignment page ready (${rowCount} rows): ${page.url().slice(0, 90)}`);
