@@ -182,9 +182,16 @@ function AddAssignmentDialog({ classId, onDone }: { classId: string; onDone: () 
       <form onSubmit={submit} className="space-y-3">
         <div><Label>Label</Label><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Essay #1" /></div>
         <div>
-          <Label>Assignment dashboard URL</Label>
-          <Input value={submitUrl} onChange={(e) => setSubmitUrl(e.target.value)} placeholder="https://www.turnitin.com/assignment/type/paper/dashboard/<id>?lang=en_us" />
-          <p className="text-xs text-muted-foreground mt-1">The assignment page with the Upload Submission button.</p>
+          <Label>Assignment URL</Label>
+          <Input
+            value={submitUrl}
+            onChange={(e) => setSubmitUrl(e.target.value)}
+            placeholder="https://www.turnitin.com/assignment/type/tool/launch?cid=…&ut=instructor&lang=en_us"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            In Turnitin: open the class → click <strong>View</strong> on the assignment → copy the full URL from the address bar.
+            The worker logs in and navigates here directly — no other steps.
+          </p>
         </div>
         <div><Label>Cooldown (hours)</Label><Input type="number" min={1} value={cooldown} onChange={(e) => setCooldown(Number(e.target.value))} /></div>
         <DialogFooter><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save assignment"}</Button></DialogFooter>
