@@ -28,10 +28,6 @@ function Page() {
   const [open, setOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Class | null>(null);
 
-  if (isAssignmentRoute) {
-    return <Outlet />;
-  }
-
   const { data: account } = useQuery({
     queryKey: ["turnitin_instructor_account", accountId],
     queryFn: async () => {
@@ -74,6 +70,10 @@ function Page() {
       .eq("id", toDelete.id);
     setToDelete(null);
     if (error) toast.error(error.message); else { toast.success("Class deleted"); refetch(); }
+  }
+
+  if (isAssignmentRoute) {
+    return <Outlet />;
   }
 
   return (
