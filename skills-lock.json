@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "playwright-debugger": {
+      "source": "dididy/e2e-skills",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-debugger/SKILL.md",
+      "computedHash": "9cb90380c72bccec38e66dceb034ac3cec903e1d6dcf6d5246ae860696908ad6"
+    }
+  }
+}
