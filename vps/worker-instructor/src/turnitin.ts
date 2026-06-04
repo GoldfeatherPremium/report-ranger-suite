@@ -23,16 +23,45 @@ const SEL = {
   passwordInput: 'input[name="password"], input[name="user_password"], input#password, input#user_password, input[type="password"]',
   loginButton: 'button[type="submit"], input[type="submit"], button:has-text("Log in"), input[value="Log in"], input[value="Login"], #login',
 
-  // ⋮ "More" button on each student row
+  // ⋮ "More" button on each student row — broad net covering PrimeVue,
+  // Turnitin's own aria labels, and any dropdown trigger pattern
   moreDotsButton: [
+    // Explicit aria-label variants
     '[aria-label="More"]',
+    '[aria-label="more"]',
     '[aria-label*="more options" i]',
     '[aria-label*="more actions" i]',
+    '[aria-label*="row actions" i]',
+    '[aria-label*="submission actions" i]',
+    '[aria-label*="open menu" i]',
+    // title attribute
+    'button[title="More"]',
     'button[title*="more" i]',
+    // PrimeVue menu/splitbutton trigger patterns
+    'button.p-menu-toggle',
+    'button.p-splitbutton-menubutton',
+    'button.p-tieredmenu-toggle',
+    '.p-menu-toggle',
+    // Generic dropdown triggers (aria-haspopup without being a select)
+    'button[aria-haspopup="true"]',
+    'button[aria-haspopup="menu"]',
+    'button[aria-controls][aria-haspopup]',
+    // data-testid / data-pc patterns
     '[data-testid*="more-actions" i]',
     '[data-testid*="more-options" i]',
-    'button.p-menu-toggle',
+    '[data-testid*="kebab" i]',
+    '[data-testid*="row-menu" i]',
+    '[data-pc-section="togglerbutton"]',
+    '[data-pc-name*="menu" i] button',
+    // Class-based patterns used in Turnitin's instructor UI
     'button.more-actions',
+    'button.actions-menu',
+    'button.kebab-menu',
+    '.more-options-button',
+    // SVG icon buttons (three-dots / ellipsis icon inside a button in a table row)
+    'td button svg[data-icon*="ellipsis"]',
+    'td button svg[class*="ellipsis"]',
+    'tr button:not([type="submit"])',
   ].join(", "),
 
   // "Submit file" dropdown item (empty rows)
@@ -862,6 +891,65 @@ async function clickMenuOption(viewer: Page, selector: string, intent: string, o
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
+// Dump a targeted summary of assignment page: rows, buttons, and iframes.
+// This runs once after page settle so we can read the exact selectors from the logs.
+async function dumpAssignmentPageControls(page: Page, onProgress: Logger): Promise<void> {
+  try {
+    await onProgress(`[diag] url=${page.url()}`);
+    await onProgress(`[diag] frames=${page.frames().length}, title="${await page.title().catch(() => "?")}"`);
+
+    for (const f of page.frames()) {
+      const fUrl = f.url().slice(0, 80);
+
+      // Summarise all table rows
+      const rowSummaries = await f.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("tr, [role=row]")).slice(0, 20);
+        return rows.map((r) => ({
+          tag: r.tagName,
+          text: (r.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 80),
+          children: r.children.length,
+        }));
+      }).catch(() => [] as {tag:string;text:string;children:number}[]);
+
+      if (rowSummaries.length) {
+        await onProgress(`[diag] frame(${fUrl}) rows (${rowSummaries.length}):`);
+        for (const r of rowSummaries) {
+          await onProgress(`[diag]   <${r.tag} children=${r.children}> "${r.text}"`);
+        }
+      }
+
+      // Dump every button on the page with all its attributes
+      const buttons = await f.evaluate(() => {
+        const els = Array.from(document.querySelectorAll(
+          "button, [role=button], [aria-haspopup], [aria-label], [data-testid], [data-pc-section]"
+        )).slice(0, 60);
+        return els.map((e) => {
+          const el = e as HTMLElement;
+          return [
+            el.tagName.toLowerCase(),
+            el.getAttribute("type")          ? `type=${el.getAttribute("type")}` : "",
+            el.getAttribute("aria-label")    ? `aria-label="${el.getAttribute("aria-label")}"` : "",
+            el.getAttribute("aria-haspopup") ? `aria-haspopup="${el.getAttribute("aria-haspopup")}"` : "",
+            el.getAttribute("aria-controls") ? `aria-controls="${el.getAttribute("aria-controls")}"` : "",
+            el.getAttribute("title")         ? `title="${el.getAttribute("title")}"` : "",
+            el.getAttribute("data-testid")   ? `data-testid="${el.getAttribute("data-testid")}"` : "",
+            el.getAttribute("data-pc-section") ? `data-pc-section="${el.getAttribute("data-pc-section")}"` : "",
+            el.className                     ? `class="${el.className.toString().slice(0, 60)}"` : "",
+            (el.textContent ?? "").trim()    ? `txt="${(el.textContent ?? "").trim().replace(/\s+/g," ").slice(0, 40)}"` : "",
+          ].filter(Boolean).join(" ");
+        });
+      }).catch(() => [] as string[]);
+
+      if (buttons.length) {
+        await onProgress(`[diag] frame(${fUrl}) interactive elements (${buttons.length}):`);
+        for (const b of buttons) await onProgress(`[diag]   <${b}>`);
+      }
+    }
+  } catch (e) {
+    await onProgress(`[diag] dump error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // Navigate to the assignment submit_url and wait for the SPA to actually render.
 // The Turnitin assignment page is a slow client-rendered SPA that can take
 // 1–15s to paint the student submission table after the document loads, so
@@ -873,23 +961,28 @@ async function gotoAssignmentPage(page: Page, url: string, onProgress: Logger): 
   await page.waitForLoadState("load", { timeout: 60_000 }).catch(() => {});
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
 
-  // Wait up to 20s for the student table / ⋮ controls to render.
-  const deadline = Date.now() + 20_000;
+  // Wait up to 25s for the student table / ⋮ controls to render.
+  const deadline = Date.now() + 25_000;
   while (Date.now() < deadline) {
+    const rowCount = await page.locator("table tbody tr, [role=row]").count().catch(() => 0);
     const ready =
       (await locateInAnyFrame(page, SEL.moreDotsButton)) !== null ||
       (await locateInAnyFrame(page, SEL.submitFileMenuItem)) !== null ||
       (await locateInAnyFrame(page, SEL.resubmitMenuItem)) !== null ||
-      (await page.locator("table tbody tr, [role=row]").count().catch(() => 0)) > 1;
+      rowCount > 1;
     if (ready) {
-      await onProgress(`assignment page ready: ${page.url().slice(0, 90)}`);
+      await onProgress(`assignment page ready (${rowCount} rows): ${page.url().slice(0, 90)}`);
+      // Dump all buttons/interactive elements on the page so we can see exactly
+      // what selectors to use for the ⋮ button in this Turnitin UI version.
+      await dumpAssignmentPageControls(page, onProgress);
       return;
     }
     // If we got bounced back to a login form, stop waiting — caller handles it.
     if (await locateInAnyFrame(page, SEL.emailInput)) return;
     await page.waitForTimeout(1_000);
   }
-  await onProgress(`assignment page settle timeout (continuing anyway): ${page.url().slice(0, 90)}`);
+  await onProgress(`assignment page settle timeout — dumping page controls for diagnosis:`);
+  await dumpAssignmentPageControls(page, onProgress);
 }
 
 async function locateInAnyFrame(page: Page, selector: string): Promise<Frame | null> {
