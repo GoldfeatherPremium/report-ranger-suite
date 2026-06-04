@@ -6,9 +6,10 @@ import type { SlotInfo } from "./supabase.js";
 import { aiDetectPageState } from "./ai-resolver.js";
 import { findElementWithAI } from "./ai-helper.js";
 
-// Per-slot Playwright storageState cache. Populated on first successful login;
-// reused on subsequent jobs for the same slot to skip the login form.
-// Lost on worker restart — a fresh login on restart is acceptable.
+// Per-account Playwright storageState cache. Keyed by account_id so all slots
+// belonging to the same Turnitin account share one session — login once, reuse
+// for every slot of that account. Lost on worker restart; a fresh login on
+// restart is acceptable since Turnitin sessions last days to weeks.
 type StorageStateObj = Awaited<ReturnType<import("playwright").BrowserContext["storageState"]>>;
 const sessionCache = new Map<string, StorageStateObj>();
 
@@ -344,7 +345,7 @@ export async function submitToTurnitin(opts: {
     // contains "HeadlessChrome", which Turnitin and similar sites often block
     // with a challenge page that has no login form (which then looks like a
     // missing selector). A realistic UA + viewport avoids that.
-    const savedState = sessionCache.get(slot.slot_id);
+    const savedState = sessionCache.get(slot.account_id);
     const ctx = await browser.newContext({
       acceptDownloads: true,
       userAgent:
@@ -368,7 +369,7 @@ export async function submitToTurnitin(opts: {
       // If the login form appeared, the session expired — clear cache and fall through to full login.
       if (await locateInAnyFrame(page, SEL.emailInput)) {
         await onProgress(`cached session expired for slot ${slot.slot_label} — clearing cache, re-logging in`);
-        sessionCache.delete(slot.slot_id);
+        sessionCache.delete(slot.account_id);
         usedCachedSession = false;
       } else {
         await onProgress(`session valid — login skipped for slot ${slot.slot_label}`);
@@ -422,7 +423,7 @@ export async function submitToTurnitin(opts: {
 
       // Save session state so the next job on this slot can skip login.
       const state = await ctx.storageState();
-      sessionCache.set(slot.slot_id, state);
+      sessionCache.set(slot.account_id, state);
       await onProgress(`session saved to cache for slot ${slot.slot_label}`);
 
       // ── Go to the assignment dashboard ──────────────────────────────────────
